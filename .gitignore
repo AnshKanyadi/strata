@@ -1,0 +1,15 @@
+# Build trees (one per preset)
+/build/
+/cmake-build-*/
+
+# Tooling / editor
+/.cache/
+compile_commands.json
+.DS_Store
+*.swp
+
+# Generated data (TPC-H exports land here in P9; never commit the ~1GB dataset)
+/data/
+/tpch_sf*/
+*.tbl
+*.parquet

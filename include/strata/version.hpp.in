@@ -1,0 +1,13 @@
+// GENERATED from version.hpp.in by CMake (configure_file). Do not edit the
+// generated copy under build/; edit include/strata/version.hpp.in instead.
+#pragma once
+
+namespace strata {
+
+inline constexpr const char* kVersion = "@PROJECT_VERSION@";
+inline constexpr const char* kCompilerId = "@CMAKE_CXX_COMPILER_ID@";
+inline constexpr const char* kCompilerVersion = "@CMAKE_CXX_COMPILER_VERSION@";
+inline constexpr const char* kBuildType = "@CMAKE_BUILD_TYPE@";
+inline constexpr const char* kSanitizer = "@STRATA_SANITIZER@";
+
+} // namespace strata

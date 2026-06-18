@@ -1,0 +1,114 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "_base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "_mac",
+      "hidden": true,
+      "inherits": "_base",
+      "description": "macOS: use Homebrew LLVM clang (not Apple clang) for full C++23.",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++"
+      }
+    },
+    {
+      "name": "_linux",
+      "hidden": true,
+      "inherits": "_base",
+      "description": "Linux CI: compiler chosen via CC/CXX env (a C++23 toolchain).",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+
+    {
+      "name": "release",
+      "displayName": "macOS Release (-O3 -march=native, benchmarks)",
+      "inherits": "_mac",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "STRATA_SANITIZER": "OFF" }
+    },
+    {
+      "name": "asan-ubsan",
+      "displayName": "macOS Debug + ASan/UBSan",
+      "inherits": "_mac",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "STRATA_SANITIZER": "ASAN_UBSAN" }
+    },
+    {
+      "name": "tsan",
+      "displayName": "macOS Debug + ThreadSanitizer",
+      "inherits": "_mac",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "STRATA_SANITIZER": "TSAN" }
+    },
+
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release (AVX2 benchmarks)",
+      "inherits": "_linux",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "STRATA_SANITIZER": "OFF" }
+    },
+    {
+      "name": "linux-asan-ubsan",
+      "displayName": "Linux Debug + ASan/UBSan",
+      "inherits": "_linux",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "STRATA_SANITIZER": "ASAN_UBSAN" }
+    },
+    {
+      "name": "linux-tsan",
+      "displayName": "Linux Debug + ThreadSanitizer",
+      "inherits": "_linux",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "STRATA_SANITIZER": "TSAN" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "release" },
+    { "name": "asan-ubsan", "configurePreset": "asan-ubsan" },
+    { "name": "tsan", "configurePreset": "tsan" },
+    { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "linux-asan-ubsan", "configurePreset": "linux-asan-ubsan" },
+    { "name": "linux-tsan", "configurePreset": "linux-tsan" }
+  ],
+  "testPresets": [
+    {
+      "name": "asan-ubsan",
+      "configurePreset": "asan-ubsan",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "linux-asan-ubsan",
+      "configurePreset": "linux-asan-ubsan",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "linux-tsan",
+      "configurePreset": "linux-tsan",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    }
+  ]
+}

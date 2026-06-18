@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # macOS / Apple Silicon (arm64): NEON. Built with Homebrew LLVM clang.
+  # ---------------------------------------------------------------------------
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and dependencies (Homebrew)
+        run: |
+          brew update
+          brew install llvm ninja highway googletest google-benchmark
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Configure + build + test (ASan/UBSan)
+        run: |
+          cmake --preset asan-ubsan
+          cmake --build --preset asan-ubsan
+          ctest --preset asan-ubsan
+
+      - name: Configure + build (Release) and run preflight
+        run: |
+          cmake --preset release
+          cmake --build --preset release
+          ./build/release/src/strata --version
+          ./build/release/bench/strata_bench --benchmark_min_time=0.05s
+
+  # ---------------------------------------------------------------------------
+  # Ubuntu / x86_64: AVX2 (and AVX-512 where the runner supports it).
+  # Built with GCC 14 (full C++23: std::expected, std::print).
+  # ---------------------------------------------------------------------------
+  ubuntu-x86_64:
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc-14
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and dependencies (apt)
+        run: |
+          sudo apt-get update
+          # g++-14 for full C++23; ninja for the generator. The dev libs are a
+          # fast path — if apt lacks a CMake config for any of them, the build's
+          # FetchContent fallback compiles a pinned version from source.
+          sudo apt-get install -y gcc-14 g++-14 ninja-build \
+            libgtest-dev libbenchmark-dev libhwy-dev || \
+          sudo apt-get install -y gcc-14 g++-14 ninja-build
+
+      - name: Configure + build + test (ASan/UBSan)
+        run: |
+          cmake --preset linux-asan-ubsan
+          cmake --build --preset linux-asan-ubsan
+          ctest --preset linux-asan-ubsan
+
+      - name: Configure + build (Release) and run preflight
+        run: |
+          cmake --preset linux-release
+          cmake --build --preset linux-release
+          ./build/linux-release/src/strata --version
+          ./build/linux-release/bench/strata_bench --benchmark_min_time=0.05s
