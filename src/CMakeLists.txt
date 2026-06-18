@@ -9,7 +9,9 @@ add_library(strata_core STATIC
   data/string_heap.cpp
   data/selection_vector.cpp
   data/vector.cpp
-  data/data_chunk.cpp)
+  data/data_chunk.cpp
+  storage/csv_loader.cpp
+  exec/result_collector.cpp)
 
 target_include_directories(strata_core PUBLIC
   "${CMAKE_SOURCE_DIR}/include"

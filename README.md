@@ -31,10 +31,11 @@ DuckDB plays three roles in this project at once:
 
 ## Status
 
-Early. Built in gated phases (P0–P9); see the roadmap below. **P0 (toolchain,
-skeleton, CI) and P1 (the columnar data plane — vectors, validity, string heap,
-selection vectors, DataChunk) are complete**, with 44 tests green under
-ASan/UBSan and TSan. No performance numbers are published yet — they arrive in P3 (kernels) and P9 (TPC-H), measured
+Early. Built in gated phases (P0–P9); see the roadmap below. **P0–P2 are
+complete**: the toolchain/CI skeleton (P0), the columnar data plane (P1), and
+storage + scan + the push-based pipeline (P2) — so `SELECT * FROM t` over a
+loaded CSV/`.tbl` runs end-to-end. 60 tests green under ASan/UBSan and TSan. No
+performance numbers are published yet — they arrive in P3 (kernels) and P9 (TPC-H), measured
 on the harness and recorded with machine specs in
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
@@ -81,7 +82,7 @@ SQL ──► Parser ──► Logical plan ──► Optimizer ──► Physic
 |-------|---------|
 | **P0** ✅ | Toolchain, skeleton, CI (mac arm64 + ubuntu x86_64), `Result` type, SIMD preflight |
 | **P1** ✅ | Columnar core: vectors, validity, DataChunk, selection vectors, string heap |
-| P2 | Storage + scan + push-based pipeline scaffolding |
+| **P2** ✅ | Storage + scan + push-based pipeline scaffolding (`SELECT * FROM t` end-to-end) |
 | P3 | Expression engine, Filter/Project, **first SIMD kernels + measured deltas** |
 | P4 | Hash aggregation (open addressing + salt + row layout) |
 | P5 | Hash join |

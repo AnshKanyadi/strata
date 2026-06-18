@@ -7,7 +7,10 @@ add_executable(strata_tests
   test_string.cpp
   test_selection_vector.cpp
   test_vector.cpp
-  test_data_chunk.cpp)
+  test_data_chunk.cpp
+  test_date.cpp
+  test_loader.cpp
+  test_pipeline.cpp)
 
 target_link_libraries(strata_tests
   PRIVATE strata_core strata_warnings GTest::gtest_main)

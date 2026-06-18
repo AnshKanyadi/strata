@@ -12,5 +12,7 @@ defended at a whiteboard.
 | [0003](0003-validity-mask.md) | Validity (NULL) representation: a 1=valid bitmask with an all-valid fast path | Accepted |
 | [0004](0004-string-layout.md) | String layout: the 16-byte German/Umbra string and an arena StringHeap | Accepted |
 | [0005](0005-vector-ownership-and-kinds.md) | Vector memory ownership (owning, 64-byte-aligned) and kinds (flat + constant) | Accepted |
+| [0006](0006-pipeline-sink-interfaces.md) | Push-based execution scaffolding: Source / Sink / Pipeline | Accepted |
+| [0007](0007-columnar-storage-and-loader.md) | In-memory columnar storage (ColumnarTable) and the delimited loader | Accepted |
 
 Format: `NNNN-kebab-title.md`. Add a row above when you add a record.

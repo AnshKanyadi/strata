@@ -57,6 +57,23 @@ The types every operator manipulates, all under `include/strata/data/`:
 - **`DataChunk`** — a set of equal-length columns (≤ `kVectorSize` = 2048) — the
   unit pushed between operators.
 
+## Storage & execution scaffolding (P2)
+
+- **`Schema` / `ColumnarTable`** (`storage/`) — a table is a schema (named, typed
+  columns) plus a sequence of `DataChunk`s of ≤ 2048 rows. Storing at execution
+  granularity makes `Scan` a zero-copy walk and pre-shapes data for morsels
+  (P8). Contrast with DuckDB's 122,880-row row groups in
+  [ADR 0007](adr/0007-columnar-storage-and-loader.md).
+- **Delimited loader** (`storage/csv_loader`) — a *simple* (non-RFC-4180)
+  parser for CSV and TPC-H `.tbl`: configurable delimiter/trailing-delimiter,
+  empty-field ⇒ NULL, `std::from_chars` numerics, `YYYY-MM-DD` → int32 epoch-days.
+  Errors return via `Result` at the setup boundary.
+- **`Source` / `Sink` / `Pipeline`** (`exec/`) — the push model from
+  [ADR 0006](adr/0006-pipeline-sink-interfaces.md): a `Source` produces borrowed
+  batches (`GetChunk` → `nullptr` at end), a `Sink` consumes them
+  (`Consume`/`Finalize`), and the `Pipeline` *is* the driving loop. `Scan` is the
+  source; `ResultCollector` is the sink (it deep-copies, since batches are borrowed).
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -64,7 +81,7 @@ The types every operator manipulates, all under `include/strata/data/`:
 | `common/` (Result, Error, macros) | P0 | done |
 | `simd/cpu_features` (preflight) | P0 | done |
 | `data/` — `TypeId`, `Validity`, `StringRef`/`StringHeap`, `SelectionVector`, `Vector`, `DataChunk` | P1 | done |
-| `ColumnarTable / Scan / Pipeline / Sink` | P2 | — |
+| `storage/` (`Schema`, `ColumnarTable`, delimited loader) + `exec/` (`Source`/`Sink`/`Pipeline`, `Scan`, `ResultCollector`) | P2 | done |
 | `ExpressionExecutor / Filter / Project` + Highway kernels | P3 | — |
 | `HashAggregate` | P4 | — |
 | `HashJoin` | P5 | — |
