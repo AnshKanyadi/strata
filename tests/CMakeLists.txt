@@ -2,7 +2,12 @@ include(GoogleTest)
 
 add_executable(strata_tests
   test_result.cpp
-  test_cpu_features.cpp)
+  test_cpu_features.cpp
+  test_validity.cpp
+  test_string.cpp
+  test_selection_vector.cpp
+  test_vector.cpp
+  test_data_chunk.cpp)
 
 target_link_libraries(strata_tests
   PRIVATE strata_core strata_warnings GTest::gtest_main)

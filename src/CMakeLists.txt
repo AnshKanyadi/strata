@@ -3,7 +3,13 @@
 # error type and the SIMD preflight.
 add_library(strata_core STATIC
   common/error.cpp
-  simd/cpu_features.cpp)
+  simd/cpu_features.cpp
+  data/types.cpp
+  data/validity.cpp
+  data/string_heap.cpp
+  data/selection_vector.cpp
+  data/vector.cpp
+  data/data_chunk.cpp)
 
 target_include_directories(strata_core PUBLIC
   "${CMAKE_SOURCE_DIR}/include"
@@ -16,9 +22,9 @@ target_compile_features(strata_core PUBLIC cxx_std_23)
 # Highway is PUBLIC because cpu_features.hpp's implementation needs it and we may
 # expose SIMD types from headers later.
 target_link_libraries(strata_core
-  PRIVATE strata_warnings
+  PRIVATE strata_warnings_strict
   PUBLIC  strata_sanitizers hwy::hwy)
 
 # The CLI / preflight binary.
 add_executable(strata strata_cli.cpp)
-target_link_libraries(strata PRIVATE strata_core strata_warnings)
+target_link_libraries(strata PRIVATE strata_core strata_warnings_strict)

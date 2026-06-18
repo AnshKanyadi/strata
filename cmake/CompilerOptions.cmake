@@ -7,6 +7,7 @@
 #                        (tests, bench, cli) is instrumented and linked the same.
 
 # --- Warnings ---------------------------------------------------------------
+# Base set: held by ALL first-party code, tests included.
 add_library(strata_warnings INTERFACE)
 target_compile_options(strata_warnings INTERFACE
   -Wall
@@ -14,12 +15,20 @@ target_compile_options(strata_warnings INTERFACE
   -Wpedantic
   -Werror
   -Wshadow
-  -Wconversion
-  -Wsign-conversion
   -Wnon-virtual-dtor
   -Woverloaded-virtual
   -Wnull-dereference
   -Wdouble-promotion)
+
+# Strict numeric-conversion checking, applied to the ENGINE / hot-path code only
+# (strata_core, strata CLI) per ADR 0002 — that is where a silent 64->32 narrow
+# in a batch index is a real bug. Test code mixes int/size_t freely (loop bounds,
+# literals) and is held to the base set above, not these.
+add_library(strata_warnings_strict INTERFACE)
+target_link_libraries(strata_warnings_strict INTERFACE strata_warnings)
+target_compile_options(strata_warnings_strict INTERFACE
+  -Wconversion
+  -Wsign-conversion)
 
 # --- Sanitizers -------------------------------------------------------------
 set(STRATA_SANITIZER "OFF" CACHE STRING "Sanitizer set: OFF | ASAN_UBSAN | TSAN")

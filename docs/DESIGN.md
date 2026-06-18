@@ -34,13 +34,36 @@ Strata vectorizes; it does not JIT-compile. The two are broadly competitive
 debuggability, predictable latency, and no codegen surface. Expanded in
 [`LIMITATIONS.md`](LIMITATIONS.md#1-vectorization-not-compilation).
 
+## Data plane (P1)
+
+The types every operator manipulates, all under `include/strata/data/`:
+
+- **`Vector`** — one column of a batch: an owning, 64-byte-aligned, zero-filled
+  data buffer + a `Validity` + (for VARCHAR) a `StringHeap`. Move-only. Kinds:
+  `kFlat` (the SIMD fast path) and `kConstant` (one value standing in for all
+  rows). Owning buffers (vs DuckDB's shared/ref-counted) is a deliberate P1
+  simplicity choice — [ADR 0005](adr/0005-vector-ownership-and-kinds.md).
+- **`Validity`** — per-row NULL mask, `uint64` words, **1 = valid**. Unallocated
+  until the first NULL, so `AllValid()` is an O(1) fast-path check operators take
+  to skip per-row null tests. NULL propagation will compose as a bitwise AND of
+  masks — [ADR 0003](adr/0003-validity-mask.md).
+- **`StringRef` / `StringHeap`** — the 16-byte German/Umbra string (inline ≤ 12
+  bytes, else a 4-byte prefix + pointer into an arena). Equality short-circuits
+  on length → prefix → bytes. Why strings blunt SIMD is documented in
+  [ADR 0004](adr/0004-string-layout.md) and [`LIMITATIONS.md`](LIMITATIONS.md#3-simd-has-a-real-ceiling-measured-from-p3).
+- **`SelectionVector`** — maps logical positions to physical rows so filters/joins
+  drop or reorder rows without copying data; identity (no storage) is the fast
+  path, and `Compose` cascades selections.
+- **`DataChunk`** — a set of equal-length columns (≤ `kVectorSize` = 2048) — the
+  unit pushed between operators.
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
 |--------|-------|--------|
 | `common/` (Result, Error, macros) | P0 | done |
 | `simd/cpu_features` (preflight) | P0 | done |
-| `Vector / Validity / DataChunk / SelectionVector / StringHeap` | P1 | — |
+| `data/` — `TypeId`, `Validity`, `StringRef`/`StringHeap`, `SelectionVector`, `Vector`, `DataChunk` | P1 | done |
 | `ColumnarTable / Scan / Pipeline / Sink` | P2 | — |
 | `ExpressionExecutor / Filter / Project` + Highway kernels | P3 | — |
 | `HashAggregate` | P4 | — |
