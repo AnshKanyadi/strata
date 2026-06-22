@@ -5,6 +5,7 @@
 #include <span>
 #include <string>
 
+#include "strata/data/column_ops.hpp"
 #include "strata/data/string_ref.hpp"
 #include "strata/data/types.hpp"
 #include "strata/data/vector.hpp"
@@ -21,22 +22,7 @@ DataChunk CopyChunk(const DataChunk& src, std::span<const TypeId> types) {
   dst.Initialize(types, kVectorSize);
   const std::size_t n = src.size();
   for (std::size_t col = 0; col < src.ColumnCount(); ++col) {
-    const Vector& s = src.column(col);
-    Vector& d = dst.column(col);
-    for (std::size_t r = 0; r < n; ++r) {
-      if (!s.validity().RowIsValid(r)) {
-        d.SetNull(r);
-        continue;
-      }
-      switch (s.type()) {
-        case TypeId::kBool:    d.Set<std::uint8_t>(r, s.Get<std::uint8_t>(r)); break;
-        case TypeId::kInt32:
-        case TypeId::kDate:    d.Set<std::int32_t>(r, s.Get<std::int32_t>(r)); break;
-        case TypeId::kInt64:   d.Set<std::int64_t>(r, s.Get<std::int64_t>(r)); break;
-        case TypeId::kDouble:  d.Set<double>(r, s.Get<double>(r)); break;
-        case TypeId::kVarchar: d.Set<StringRef>(r, d.AddString(s.Get<StringRef>(r).view())); break;
-      }
-    }
+    CopyColumn(src.column(col), dst.column(col), n);
   }
   dst.SetSize(n);
   return dst;

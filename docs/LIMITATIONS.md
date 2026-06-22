@@ -34,16 +34,25 @@ a row store wins. Strata is an in-memory analytical engine and makes no claim to
 be a general-purpose or transactional database. No durability, no concurrency
 control, no updates/deletes.
 
-## 3. SIMD has a real ceiling *(measured from P3)*
+## 3. SIMD has a real ceiling *(measured in P3)*
 
-SIMD accelerates branch-free numeric and comparison loops. It does **little** for:
-- **strings** (variable length, indirection, comparison is not a single op),
-- **hash-table probes** (pointer chasing / random access, not streaming),
-- **branchy code** (data-dependent control flow defeats lane parallelism).
+SIMD accelerates branch-free numeric and comparison loops, and **little else.**
+The P3 microbenchmarks measure this on NEON (full table + caveats in
+[`BENCHMARKS.md`](BENCHMARKS.md#microkernels-scalar-vs-simd--neon-p3)):
 
-The P3 microbenchmarks are designed to *show* this — big speedups on selective
-filters and arithmetic, near-flat results on string and probe-heavy work.
-Reporting only the wins would be dishonest.
+- **Lane count is the ceiling.** int32 `+`/`*`/`>` win ~3.7× (NEON packs 4×int32);
+  the *same* ops on `double` win only ~1.7× (2×double per 128-bit vector). Half
+  the lanes, half the speedup — the win is bounded by the vector width, not by
+  cleverness.
+- **It does little for** strings (variable length, out-of-line, compare is a
+  byte loop not a lane op — ADR 0004), hash-table probes (random gather /
+  pointer chasing), and the three-valued logical ops AND/OR/NOT (data-dependent
+  branches). These run in **scalar** by design; there is no honest SIMD speedup
+  to show, so we don't fabricate one.
+- **The "scalar" baseline disables auto-vectorization.** At `-O3` the compiler
+  would auto-vectorize the simple scalar loops itself, so the measured ratios are
+  an *upper bound* on the gain over compiler-auto-vectorized scalar. We say so
+  next to the numbers rather than implying SIMD is uniquely responsible.
 
 ## 4. Apple Silicon NEON reality
 

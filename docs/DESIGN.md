@@ -74,6 +74,25 @@ The types every operator manipulates, all under `include/strata/data/`:
   (`Consume`/`Finalize`), and the `Pipeline` *is* the driving loop. `Scan` is the
   source; `ResultCollector` is the sink (it deep-copies, since batches are borrowed).
 
+## Expression evaluation & SIMD (P3)
+
+- **SIMD kernels** (`simd/kernels.cc`) — `+ - *` and the six comparisons for
+  int32/int64/double, via Google Highway with **runtime dispatch** (NEON on the
+  M3, AVX2 on x86 CI from one source). Kernels are value-only (NULL-agnostic);
+  dispatch and the op-switch are hoisted **above** the hot loop (once per batch).
+  A hand-written scalar reference (`scalar_kernels.hpp`) is the differential-test
+  oracle. Rationale + the measured SIMD ceiling: [ADR 0008](adr/0008-simd-kernels-and-the-ceiling.md).
+- **`ExpressionExecutor`** (`exec/expression`) — recursively evaluates an
+  `Expression` tree (column ref, constant, comparison, arithmetic, AND/OR/NOT)
+  to a result `Vector` with **three-valued NULL logic**: strict ops propagate
+  NULL as a validity-mask AND; AND/OR/NOT use 3VL truth tables in scalar (a
+  decisive `FALSE`/`TRUE` beats a NULL partner). [ADR 0009](adr/0009-vectorized-expression-eval-and-3vl.md).
+- **`Filter`** produces a **selection vector** of rows where the predicate is
+  TRUE (FALSE and NULL are dropped) — no column copying. **`Project`** evaluates
+  its expressions and **gathers** the selected rows into a dense output chunk
+  (the materialization point). Full path demonstrated: Scan → Filter → Project →
+  ResultCollector.
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -82,7 +101,7 @@ The types every operator manipulates, all under `include/strata/data/`:
 | `simd/cpu_features` (preflight) | P0 | done |
 | `data/` — `TypeId`, `Validity`, `StringRef`/`StringHeap`, `SelectionVector`, `Vector`, `DataChunk` | P1 | done |
 | `storage/` (`Schema`, `ColumnarTable`, delimited loader) + `exec/` (`Source`/`Sink`/`Pipeline`, `Scan`, `ResultCollector`) | P2 | done |
-| `ExpressionExecutor / Filter / Project` + Highway kernels | P3 | — |
+| `simd/` (Highway kernels + scalar ref) + `exec/` (`ExpressionExecutor`, `Filter`, `Project`) | P3 | done |
 | `HashAggregate` | P4 | — |
 | `HashJoin` | P5 | — |
 | `Sort / Limit / TopN` | P6 | — |

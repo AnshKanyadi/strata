@@ -14,5 +14,7 @@ defended at a whiteboard.
 | [0005](0005-vector-ownership-and-kinds.md) | Vector memory ownership (owning, 64-byte-aligned) and kinds (flat + constant) | Accepted |
 | [0006](0006-pipeline-sink-interfaces.md) | Push-based execution scaffolding: Source / Sink / Pipeline | Accepted |
 | [0007](0007-columnar-storage-and-loader.md) | In-memory columnar storage (ColumnarTable) and the delimited loader | Accepted |
+| [0008](0008-simd-kernels-and-the-ceiling.md) | SIMD kernels: per-batch dispatch boundary, Highway runtime dispatch, and the SIMD ceiling | Accepted |
+| [0009](0009-vectorized-expression-eval-and-3vl.md) | Vectorized expression evaluation and three-valued NULL logic | Accepted |
 
 Format: `NNNN-kebab-title.md`. Add a row above when you add a record.

@@ -4,18 +4,28 @@
 add_library(strata_core STATIC
   common/error.cpp
   simd/cpu_features.cpp
+  simd/kernels.cc
   data/types.cpp
   data/validity.cpp
   data/string_heap.cpp
   data/selection_vector.cpp
   data/vector.cpp
   data/data_chunk.cpp
+  data/column_ops.cpp
   storage/csv_loader.cpp
+  exec/expression.cpp
+  exec/filter.cpp
+  exec/project.cpp
   exec/result_collector.cpp)
 
 target_include_directories(strata_core PUBLIC
   "${CMAKE_SOURCE_DIR}/include"
   "${CMAKE_BINARY_DIR}/generated") # for the configured version.hpp
+
+# `src` on the include path so Highway's foreach_target.h can re-include the
+# kernel TU via `#include "simd/kernels.cc"` (HWY_TARGET_INCLUDE). PRIVATE: only
+# the kernel build needs it; it does not leak to consumers.
+target_include_directories(strata_core PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_compile_features(strata_core PUBLIC cxx_std_23)
 
