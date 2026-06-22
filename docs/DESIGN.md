@@ -93,6 +93,29 @@ The types every operator manipulates, all under `include/strata/data/`:
   (the materialization point). Full path demonstrated: Scan → Filter → Project →
   ResultCollector.
 
+## Hash aggregation (P4)
+
+`HashAggregate` is a `Sink` implementing `GROUP BY` and global aggregation
+(`COUNT(*)`, `COUNT`, `SUM`, `MIN`, `MAX`, `AVG`):
+
+- **Open-addressing, linear-probe table** ([ADR 0010](adr/0010-aggregate-hash-table.md)).
+  Group rows live in one contiguous buffer, each `[ hash | key values |
+  key null-flags | aggregate states ]`; a slots array holds `{group index, salt}`.
+  Probe rejects on the 1-byte salt before any full key compare; grows by doubling
+  + re-slotting via the stored hash. Key + state share one row → one cache-line
+  region per probe, no per-group allocation (vs `std::unordered_map`).
+- **NULL is its own group** (null-flag in the key; `NULL == NULL` for grouping);
+  global aggregation is a single pre-created group.
+- **Per-batch scatter-update** ([ADR 0011](adr/0011-aggregate-state-and-overflow.md)):
+  probe the whole batch → `gidx[]`, then each aggregate updates its inline state
+  once per batch. The scatter is random-access (gather/scatter) — memory-bound,
+  not a SIMD target (consistent with ADR 0008's ceiling).
+- **NULL + overflow**: aggregates skip NULLs (except `COUNT(*)`); empty/all-NULL
+  groups yield NULL for SUM/MIN/MAX/AVG and 0 for COUNT. `SUM(int32)` widens to an
+  int64 accumulator (overflow-safe); we keep int64 (not `__int128`) for
+  `-Wpedantic` portability across the clang+gcc CI matrix — DuckDB uses int128
+  (values cross-checked, only the output type differs).
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -102,7 +125,7 @@ The types every operator manipulates, all under `include/strata/data/`:
 | `data/` — `TypeId`, `Validity`, `StringRef`/`StringHeap`, `SelectionVector`, `Vector`, `DataChunk` | P1 | done |
 | `storage/` (`Schema`, `ColumnarTable`, delimited loader) + `exec/` (`Source`/`Sink`/`Pipeline`, `Scan`, `ResultCollector`) | P2 | done |
 | `simd/` (Highway kernels + scalar ref) + `exec/` (`ExpressionExecutor`, `Filter`, `Project`) | P3 | done |
-| `HashAggregate` | P4 | — |
+| `exec/aggregate` + `exec/hash_aggregate` (open-addressing GROUP BY) | P4 | done |
 | `HashJoin` | P5 | — |
 | `Sort / Limit / TopN` | P6 | — |
 | `LogicalPlan / Optimizer / Parser` | P7 | — |

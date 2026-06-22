@@ -16,5 +16,7 @@ defended at a whiteboard.
 | [0007](0007-columnar-storage-and-loader.md) | In-memory columnar storage (ColumnarTable) and the delimited loader | Accepted |
 | [0008](0008-simd-kernels-and-the-ceiling.md) | SIMD kernels: per-batch dispatch boundary, Highway runtime dispatch, and the SIMD ceiling | Accepted |
 | [0009](0009-vectorized-expression-eval-and-3vl.md) | Vectorized expression evaluation and three-valued NULL logic | Accepted |
+| [0010](0010-aggregate-hash-table.md) | Aggregate hash table: open addressing, linear probing, salt, and a row layout | Accepted |
+| [0011](0011-aggregate-state-and-overflow.md) | Aggregate state, NULL semantics, and the SUM overflow policy | Accepted |
 
 Format: `NNNN-kebab-title.md`. Add a row above when you add a record.

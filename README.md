@@ -31,11 +31,13 @@ DuckDB plays three roles in this project at once:
 
 ## Status
 
-Early. Built in gated phases (P0–P9); see the roadmap below. **P0–P3 are
+Early. Built in gated phases (P0–P9); see the roadmap below. **P0–P4 are
 complete**: the toolchain/CI skeleton (P0), the columnar data plane (P1),
-storage + scan + the push-based pipeline (P2), and the vectorized expression
-engine with NULL-aware Filter/Project and Highway SIMD kernels (P3). 84 tests
-green under ASan/UBSan and TSan. The **first measured numbers** — scalar vs.
+storage + scan + the push-based pipeline (P2), the vectorized expression
+engine with NULL-aware Filter/Project and Highway SIMD kernels (P3), and hash
+aggregation — GROUP BY + global COUNT/SUM/MIN/MAX/AVG (P4). 92 tests green under
+ASan/UBSan and TSan, aggregates cross-checked against DuckDB. The **first
+measured numbers** — scalar vs.
 SIMD on NEON, ~3.7× on int32 and ~1.7× on doubles — are in
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (honestly: lane-count bounded, with
 the auto-vectorization caveat stated). DuckDB TPC-H comparisons come in P9 — they arrive in P3 (kernels) and P9 (TPC-H), measured
@@ -87,7 +89,7 @@ SQL ──► Parser ──► Logical plan ──► Optimizer ──► Physic
 | **P1** ✅ | Columnar core: vectors, validity, DataChunk, selection vectors, string heap |
 | **P2** ✅ | Storage + scan + push-based pipeline scaffolding (`SELECT * FROM t` end-to-end) |
 | **P3** ✅ | Expression engine, Filter/Project, **Highway SIMD kernels + measured scalar-vs-SIMD deltas** |
-| P4 | Hash aggregation (open addressing + salt + row layout) |
+| **P4** ✅ | Hash aggregation: open addressing + salt + row layout; COUNT/SUM/MIN/MAX/AVG, NULL + overflow handling |
 | P5 | Hash join |
 | P6 | Sort / Limit / Top-N |
 | P7 | Plan IR, rule-based optimizer, SQL front-end |
