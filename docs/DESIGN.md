@@ -116,6 +116,28 @@ The types every operator manipulates, all under `include/strata/data/`:
   `-Wpedantic` portability across the clang+gcc CI matrix — DuckDB uses int128
   (values cross-checked, only the output type differs).
 
+## Hash join (P5)
+
+`HashJoinBuild` / `HashJoinProbe` implement an inner equi-join ([ADR 0012](adr/0012-hash-join.md)):
+
+- **Chained** build table (vs the aggregate table's open addressing) because joins
+  retain *every* build row and keys repeat: a slots array points to a chain head,
+  and each build row carries an in-buffer `next` index (no per-node allocation).
+- **Row-layout** build rows `[ hash | column values | null-flags | next ]` — fully
+  materialized (deep-copied; long-string bytes into the table's heap) because the
+  build side is a pipeline breaker and input chunks are borrowed. A matched row is
+  gathered from one contiguous region.
+- **Equi-join NULL semantics** (not 3VL): build rows with a NULL join key are
+  *excluded*; probe rows with a NULL key are *skipped* — so the key compare needs
+  no NULL logic.
+- **Probe**: hash → walk the chain → quick-reject on the stored 64-bit hash →
+  full key compare. **Fan-out** (a probe row may match many build rows) is buffered
+  to `kVectorSize` and flushed via a gather: probe columns by a selection vector
+  over the live probe chunk, build columns from the matched rows. The walk/gather is
+  random-access (memory-bound, not a SIMD win — ADR 0008's ceiling).
+- Multi-key (composite hashing). Cross-checked against DuckDB. Build goes parallel
+  in P8 (foreshadowed: thread-local partitions or a shared table, read-only probe).
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -126,7 +148,7 @@ The types every operator manipulates, all under `include/strata/data/`:
 | `storage/` (`Schema`, `ColumnarTable`, delimited loader) + `exec/` (`Source`/`Sink`/`Pipeline`, `Scan`, `ResultCollector`) | P2 | done |
 | `simd/` (Highway kernels + scalar ref) + `exec/` (`ExpressionExecutor`, `Filter`, `Project`) | P3 | done |
 | `exec/aggregate` + `exec/hash_aggregate` (open-addressing GROUP BY) | P4 | done |
-| `HashJoin` | P5 | — |
+| `exec/hash_join` (chained build/probe equi-join) | P5 | done |
 | `Sort / Limit / TopN` | P6 | — |
 | `LogicalPlan / Optimizer / Parser` | P7 | — |
 | Morsel scheduler (work-stealing) | P8 | — |

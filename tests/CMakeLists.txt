@@ -16,7 +16,8 @@ add_executable(strata_tests
   test_filter.cpp
   test_project.cpp
   test_p3_pipeline.cpp
-  test_hash_aggregate.cpp)
+  test_hash_aggregate.cpp
+  test_hash_join.cpp)
 
 target_link_libraries(strata_tests
   PRIVATE strata_core strata_warnings GTest::gtest_main)

@@ -9,52 +9,13 @@
 
 #include "strata/data/string_ref.hpp"
 #include "strata/data/vector.hpp"
+#include "strata/exec/hash_util.hpp"  // hashing::Mix/Combine/HashValue
 
 namespace strata {
 namespace {
 
 constexpr std::size_t Align8(std::size_t x) { return (x + 7) & ~std::size_t{7}; }
-constexpr std::uint64_t kNullKeyHash = 0x9ddfea08eb382d69ULL;  // arbitrary fixed value for NULL keys
-
-// murmur3 64-bit finalizer — spreads bits so the low bits used for the slot
-// index are well-mixed.
-std::uint64_t Mix(std::uint64_t x) {
-  x ^= x >> 33;
-  x *= 0xff51afd7ed558ccdULL;
-  x ^= x >> 33;
-  x *= 0xc4ceb9fe1a85ec53ULL;
-  x ^= x >> 33;
-  return x;
-}
-std::uint64_t Combine(std::uint64_t seed, std::uint64_t h) {
-  return seed ^ (h + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
-}
-std::uint64_t FnvHash(std::string_view s) {
-  std::uint64_t h = 0xcbf29ce484222325ULL;
-  for (const char c : s) {
-    h ^= static_cast<std::uint64_t>(static_cast<std::uint8_t>(c));
-    h *= 0x100000001b3ULL;
-  }
-  return h;
-}
-
-// Hash one (valid) key value of the given type.
-std::uint64_t HashValue(TypeId t, const Vector& col, std::size_t i) {
-  switch (t) {
-    case TypeId::kInt32:
-    case TypeId::kDate:
-      return Mix(static_cast<std::uint64_t>(static_cast<std::uint32_t>(col.Get<std::int32_t>(i))));
-    case TypeId::kInt64:
-      return Mix(static_cast<std::uint64_t>(col.Get<std::int64_t>(i)));
-    case TypeId::kDouble:
-      return Mix(std::bit_cast<std::uint64_t>(col.Get<double>(i)));
-    case TypeId::kBool:
-      return Mix(col.Get<std::uint8_t>(i));
-    case TypeId::kVarchar:
-      return Mix(FnvHash(col.Get<StringRef>(i).view()));
-  }
-  return 0;
-}
+constexpr std::uint64_t kNullKeyHash = 0x9ddfea08eb382d69ULL;  // fixed value for NULL group keys
 
 }  // namespace
 
@@ -119,12 +80,12 @@ void HashAggregate::Grow() {
 }
 
 std::uint64_t HashAggregate::HashRow(const DataChunk& chunk, std::size_t row) const {
-  std::uint64_t h = 0xcbf29ce484222325ULL;
+  std::uint64_t h = hashing::kFnvSeed;
   for (const GroupKey& k : keys_) {
     const Vector& col = chunk.column(k.col);
     const std::uint64_t kh =
-        col.validity().RowIsValid(row) ? HashValue(k.type, col, row) : kNullKeyHash;
-    h = Combine(h, kh);
+        col.validity().RowIsValid(row) ? hashing::HashValue(k.type, col, row) : kNullKeyHash;
+    h = hashing::Combine(h, kh);
   }
   return h;
 }

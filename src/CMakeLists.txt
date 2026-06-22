@@ -18,6 +18,7 @@ add_library(strata_core STATIC
   exec/project.cpp
   exec/aggregate.cpp
   exec/hash_aggregate.cpp
+  exec/hash_join.cpp
   exec/result_collector.cpp)
 
 target_include_directories(strata_core PUBLIC

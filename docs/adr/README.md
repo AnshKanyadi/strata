@@ -18,5 +18,6 @@ defended at a whiteboard.
 | [0009](0009-vectorized-expression-eval-and-3vl.md) | Vectorized expression evaluation and three-valued NULL logic | Accepted |
 | [0010](0010-aggregate-hash-table.md) | Aggregate hash table: open addressing, linear probing, salt, and a row layout | Accepted |
 | [0011](0011-aggregate-state-and-overflow.md) | Aggregate state, NULL semantics, and the SUM overflow policy | Accepted |
+| [0012](0012-hash-join.md) | Hash join: build/probe, chained build table, row layout, vectorized match gather | Accepted |
 
 Format: `NNNN-kebab-title.md`. Add a row above when you add a record.
