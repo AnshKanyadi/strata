@@ -35,9 +35,9 @@ Early. Built in gated phases (P0–P9); see the roadmap below. **P0–P4 are
 complete**: the toolchain/CI skeleton (P0), the columnar data plane (P1),
 storage + scan + the push-based pipeline (P2), the vectorized expression
 engine with NULL-aware Filter/Project and Highway SIMD kernels (P3), hash
-aggregation — GROUP BY + global COUNT/SUM/MIN/MAX/AVG (P4), and the hash join
-(P5). 100 tests green under ASan/UBSan and TSan; aggregates and joins
-cross-checked against DuckDB. The **first
+aggregation — GROUP BY + global COUNT/SUM/MIN/MAX/AVG (P4), the hash join
+(P5), and Sort / Limit / Top-N (P6). 116 tests green under ASan/UBSan and TSan;
+aggregates, joins, and sort order cross-checked against DuckDB. The **first
 measured numbers** — scalar vs.
 SIMD on NEON, ~3.7× on int32 and ~1.7× on doubles — are in
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (honestly: lane-count bounded, with
@@ -92,7 +92,7 @@ SQL ──► Parser ──► Logical plan ──► Optimizer ──► Physic
 | **P3** ✅ | Expression engine, Filter/Project, **Highway SIMD kernels + measured scalar-vs-SIMD deltas** |
 | **P4** ✅ | Hash aggregation: open addressing + salt + row layout; COUNT/SUM/MIN/MAX/AVG, NULL + overflow handling |
 | **P5** ✅ | Hash join: chained build table + row layout, vectorized match gather, multi-key, NULL semantics |
-| P6 | Sort / Limit / Top-N |
+| **P6** ✅ | Sort / Limit / Top-N: stable comparator sort (multi-col, NULL order), bounded-heap Top-N |
 | P7 | Plan IR, rule-based optimizer, SQL front-end |
 | P8 | **Morsel-driven parallelism** (work-stealing, TSan-clean) |
 | P9 | **TPC-H correctness + performance vs. DuckDB**, gap analysis |

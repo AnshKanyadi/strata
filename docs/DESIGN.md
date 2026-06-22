@@ -138,6 +138,27 @@ The types every operator manipulates, all under `include/strata/data/`:
 - Multi-key (composite hashing). Cross-checked against DuckDB. Build goes parallel
   in P8 (foreshadowed: thread-local partitions or a shared table, read-only probe).
 
+## Sort / Limit / Top-N (P6)
+
+[ADR 0013](adr/0013-sort-limit-topn.md). All three are sinks; the engine is now
+genuinely usable (a safe checkpoint).
+
+- **`Sort`** (`ORDER BY`) — a pipeline breaker: materialize all input (repacked
+  into the operator's own 2048-row chunks for O(1) `idx → (chunk, offset)`),
+  `std::stable_sort` an **index** array by a multi-key comparator (sort indices,
+  not wide rows), then gather rows in order. Stable; multi-column ASC/DESC; NULL
+  ordering via `nulls_first` — an *absolute* position (default NULLS LAST, both
+  directions, matching DuckDB), independent of ASC/DESC which flips only the value
+  compare. Shared `CompareRows`.
+- **`TopN`** (`ORDER BY … LIMIT k`) — a **bounded max-heap** of size k (root =
+  worst kept row; a better row replaces it). O(N log k) time, O(k) memory vs the
+  full sort's O(N log N)/O(N). Same comparator → output equals
+  full-sort-then-LIMIT-k (tested invariant).
+- **`Limit`** — forwards the first n rows. Early termination (stop the source) is
+  the deferred push "stop" signal (ADR 0001), so a bare LIMIT still drains input.
+- **Deferred**: normalized/binary sort keys (one `memcmp` over an order-preserving
+  encoded key) — the known next optimization, documented in ADR 0013.
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -149,7 +170,7 @@ The types every operator manipulates, all under `include/strata/data/`:
 | `simd/` (Highway kernels + scalar ref) + `exec/` (`ExpressionExecutor`, `Filter`, `Project`) | P3 | done |
 | `exec/aggregate` + `exec/hash_aggregate` (open-addressing GROUP BY) | P4 | done |
 | `exec/hash_join` (chained build/probe equi-join) | P5 | done |
-| `Sort / Limit / TopN` | P6 | — |
+| `exec/sort` + `exec/top_n` + `exec/limit` | P6 | done |
 | `LogicalPlan / Optimizer / Parser` | P7 | — |
 | Morsel scheduler (work-stealing) | P8 | — |
 | TPC-H harness | P9 | — |

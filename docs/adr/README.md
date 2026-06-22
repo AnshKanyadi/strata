@@ -19,5 +19,6 @@ defended at a whiteboard.
 | [0010](0010-aggregate-hash-table.md) | Aggregate hash table: open addressing, linear probing, salt, and a row layout | Accepted |
 | [0011](0011-aggregate-state-and-overflow.md) | Aggregate state, NULL semantics, and the SUM overflow policy | Accepted |
 | [0012](0012-hash-join.md) | Hash join: build/probe, chained build table, row layout, vectorized match gather | Accepted |
+| [0013](0013-sort-limit-topn.md) | Sort, Limit, Top-N: comparator-based columnar sort, a bounded heap, deferred normalized keys | Accepted |
 
 Format: `NNNN-kebab-title.md`. Add a row above when you add a record.
