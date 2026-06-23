@@ -183,6 +183,26 @@ The end-to-end `query(sql, catalog) → result` path ([ADR 0014](adr/0014-sql-fr
   DuckDB; **JOIN execution is deferred to P9** (the Join node + the inner-join
   pushdown rule exist and are tested at the IR level).
 
+## Morsel-driven parallelism (P8)
+
+[ADR 0015](adr/0015-morsel-driven-parallelism.md). The marquee piece, **TSan-clean**.
+
+- **`ThreadPool`** (`parallel/thread_pool`) — work-stealing: per-worker
+  mutex-guarded deques (run own LIFO, steal FIFO), parked on a condition variable,
+  with `ParallelFor(n, body(task, worker_id))` as a fork-join barrier. Mutex/atomic/
+  cv synchronization → TSan-clean by construction.
+- **`ParallelAggregate`** (`parallel/parallel_aggregate`) — morsel-driven GROUP BY:
+  the table's chunks are morsels; each worker folds its morsels into a
+  **thread-local `HashAggregate`** (no shared mutable state); after the barrier a
+  single-threaded **`MergeFrom`** combines the per-worker partials at the **raw
+  state level** (a new per-aggregate `combine` op — combines `(sum,count)`, not
+  finalized values) and `Finalize`s to the output.
+- **Verified**: bit-identical to serial for integer aggregates at 1/2/4/8 threads;
+  TSan-clean under a stress harness; **8.1× at 11 threads** (sub-linear — the M3's
+  E-cores + memory-bound aggregation; see [BENCHMARKS](BENCHMARKS.md#parallel-aggregation-scaling--neon-p8)).
+- **Honest boundary**: this is a standalone operator — the SQL executor still
+  aggregates serially; routing the planner through it is the next step.
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -196,5 +216,5 @@ The end-to-end `query(sql, catalog) → result` path ([ADR 0014](adr/0014-sql-fr
 | `exec/hash_join` (chained build/probe equi-join) | P5 | done |
 | `exec/sort` + `exec/top_n` + `exec/limit` | P6 | done |
 | `plan/` — parser, `LogicalPlan` IR, binder + catalog, optimizer, executor, `query()` | P7 | done |
-| Morsel scheduler (work-stealing) | P8 | — |
+| `parallel/` — work-stealing `ThreadPool` + `ParallelAggregate` (morsel-driven) | P8 | built + TSan-clean (executor integration pending) |
 | TPC-H harness | P9 | — |

@@ -21,5 +21,6 @@ defended at a whiteboard.
 | [0012](0012-hash-join.md) | Hash join: build/probe, chained build table, row layout, vectorized match gather | Accepted |
 | [0013](0013-sort-limit-topn.md) | Sort, Limit, Top-N: comparator-based columnar sort, a bounded heap, deferred normalized keys | Accepted |
 | [0014](0014-sql-frontend-and-optimizer.md) | SQL front-end: hand-written parser, logical plan IR, and a rule-based optimizer | Accepted |
+| [0015](0015-morsel-driven-parallelism.md) | Morsel-driven parallelism: a work-stealing thread pool, thread-local aggregation, and a merge | Accepted — primitives + parallel-aggregation path built and tested; not yet wired into the SQL executor |
 
 Format: `NNNN-kebab-title.md`. Add a row above when you add a record.

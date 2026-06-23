@@ -216,6 +216,84 @@ void HashAggregate::Consume(const DataChunk& chunk) {
   }
 }
 
+bool HashAggregate::KeysEqualRows(const std::byte* a, const std::byte* b) const {
+  for (std::size_t k = 0; k < keys_.size(); ++k) {
+    const bool an = a[null_offset_ + k] != std::byte{0};
+    const bool bn = b[null_offset_ + k] != std::byte{0};
+    if (an != bn) return false;
+    if (an) continue;  // both NULL
+    const std::byte* pa = a + key_offsets_[k];
+    const std::byte* pb = b + key_offsets_[k];
+    if (keys_[k].type == TypeId::kVarchar) {
+      StringRef sa, sb;
+      std::memcpy(&sa, pa, sizeof(sa));
+      std::memcpy(&sb, pb, sizeof(sb));
+      if (sa.view() != sb.view()) return false;
+    } else if (std::memcmp(pa, pb, PhysicalSize(keys_[k].type)) != 0) {
+      return false;  // fixed-width: a raw byte compare suffices
+    }
+  }
+  return true;
+}
+
+void HashAggregate::CopyKeyFromRow(std::byte* dst, const std::byte* src) {
+  for (std::size_t k = 0; k < keys_.size(); ++k) {
+    dst[null_offset_ + k] = src[null_offset_ + k];
+    if (src[null_offset_ + k] != std::byte{0}) continue;  // NULL: value stays zero
+    std::byte* d = dst + key_offsets_[k];
+    const std::byte* s = src + key_offsets_[k];
+    if (keys_[k].type == TypeId::kVarchar) {
+      StringRef sr;
+      std::memcpy(&sr, s, sizeof(sr));
+      const StringRef copy = key_heap_.Add(sr.view());  // own the bytes in THIS table's heap
+      std::memcpy(d, &copy, sizeof(copy));
+    } else {
+      std::memcpy(d, s, PhysicalSize(keys_[k].type));
+    }
+  }
+}
+
+std::uint32_t HashAggregate::FindOrCreateGroupFromRow(const std::byte* src, std::uint64_t hash) {
+  const std::uint16_t salt = static_cast<std::uint16_t>(hash >> 48);
+  std::size_t slot = static_cast<std::size_t>(hash) & mask_;
+  for (;;) {
+    const Slot s = slots_[slot];
+    if (s.index == kEmpty) {
+      const std::uint32_t gi = AppendGroup(hash);
+      CopyKeyFromRow(RowPtr(gi), src);
+      slots_[slot] = Slot{gi, salt};
+      if (num_groups_ > (slots_.size() * 7) / 10) Grow();
+      return gi;
+    }
+    if (s.salt == salt && KeysEqualRows(RowPtr(s.index), src)) return s.index;
+    slot = (slot + 1) & mask_;
+  }
+}
+
+void HashAggregate::MergeFrom(const HashAggregate& other) {
+  if (keys_.empty()) {
+    // Global aggregation: a single pre-created group 0 on each side, not in the
+    // slots table — combine directly.
+    if (other.num_groups_ == 0) return;
+    std::byte* drow = RowPtr(0);
+    const std::byte* src = other.RowPtr(0);
+    for (std::size_t a = 0; a < aggs_.size(); ++a) {
+      aggs_[a].combine(drow + state_offsets_[a], src + state_offsets_[a]);
+    }
+    return;
+  }
+  for (std::uint32_t g = 0; g < other.num_groups_; ++g) {
+    const std::byte* src = other.RowPtr(g);
+    std::uint64_t h;
+    std::memcpy(&h, src, sizeof(h));  // stored hash
+    const std::uint32_t dst = FindOrCreateGroupFromRow(src, h);
+    std::byte* drow = RowPtr(dst);
+    for (std::size_t a = 0; a < aggs_.size(); ++a) {
+      aggs_[a].combine(drow + state_offsets_[a], src + state_offsets_[a]);
+    }
+  }
+}
+
 void HashAggregate::WriteKeyToOutput(Vector& out, std::size_t out_row, const std::byte* row,
                                      std::size_t k) const {
   if (row[null_offset_ + k] != std::byte{0}) {

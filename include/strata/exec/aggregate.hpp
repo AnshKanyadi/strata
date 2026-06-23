@@ -40,6 +40,11 @@ struct ResolvedAggregate {
 
   // Produce the group's result value into out[out_row] (or mark it NULL).
   void (*finalize)(const std::byte* state, Vector& out, std::size_t out_row) = nullptr;
+
+  // Merge a partial `src` state into `dst` (both states of this aggregate). Used
+  // to combine per-worker thread-local tables in parallel aggregation (ADR 0015).
+  // Merges RAW states (e.g. AVG's (sum,count)), so it must run before finalize.
+  void (*combine)(std::byte* dst, const std::byte* src) = nullptr;
 };
 
 // Resolve an aggregate function + input type to its operations. Supported:

@@ -27,7 +27,9 @@ add_library(strata_core STATIC
   plan/binder.cpp
   plan/optimizer.cpp
   plan/executor.cpp
-  plan/query.cpp)
+  plan/query.cpp
+  parallel/thread_pool.cpp
+  parallel/parallel_aggregate.cpp)
 
 target_include_directories(strata_core PUBLIC
   "${CMAKE_SOURCE_DIR}/include"

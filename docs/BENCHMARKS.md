@@ -79,6 +79,35 @@ AVX2 numbers from the x86_64 CI runner will be added once CI runs (the same
 Highway source, wider vectors — expect larger int32 gains and a similar
 32-vs-64-bit gap).
 
+### Parallel aggregation scaling — NEON (P8)
+
+Morsel-driven `ParallelAggregate` (work-stealing pool + thread-local hash tables +
+merge, ADR 0015), GROUP BY over **4,000,000 rows / 1,000 groups**, `SUM`+`COUNT(*)`,
+on the **Apple M3 Pro (5 performance + 6 efficiency cores, 11 total)**, `release`
+preset. Median of 5 iterations; reproduce with
+`./build/release/bench/strata_bench_parallel`.
+
+| Threads | Mrows/s | Speedup vs. 1 |
+|--------:|--------:|--------------:|
+| 1  | 76  | 1.00× |
+| 2  | 153 | 2.02× |
+| 4  | 279 | 3.70× |
+| 6  | 411 | 5.44× |
+| 8  | 479 | 6.34× |
+| 11 | 610 | 8.08× |
+
+**Reading it honestly:** scaling is near-linear through ~4 threads and still strong
+at 6 (5.4×) — roughly the **5 performance cores** plus one efficiency core. Beyond
+that it goes **sub-linear** (6.3× at 8, **8.1× at 11**, not ~11×): the M3's
+**efficiency cores are slower than its performance cores**, and aggregation is
+memory-/hash-probe-bound (ADR 0008 ceiling), so adding E-cores yields diminishing
+returns. This is exactly the asymmetric-core behaviour the ADR predicts — reported,
+not rounded up to "near-linear to 11×".
+
+> Scope note: this measures the standalone `ParallelAggregate` operator. The SQL
+> executor (`query()`) still aggregates serially — routing the planner through the
+> parallel layer is the next step (ADR 0015).
+
 ### TPC-H SF1 vs. DuckDB — *(P9)*
 _Pending._
 

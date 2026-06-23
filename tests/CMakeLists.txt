@@ -22,7 +22,9 @@ add_executable(strata_tests
   test_top_n.cpp
   test_limit.cpp
   test_optimizer.cpp
-  test_sql.cpp)
+  test_sql.cpp
+  test_thread_pool.cpp
+  test_parallel_aggregate.cpp)
 
 target_link_libraries(strata_tests
   PRIVATE strata_core strata_warnings GTest::gtest_main)

@@ -106,23 +106,52 @@ void FinAvg(const std::byte* s, Vector& out, std::size_t r) {
   else out.Set<double>(r, static_cast<double>(st->sum) / static_cast<double>(st->count));
 }
 
+// --- combine (merge a partial `src` state into `dst`) — for parallel merge ---
+
+void CombCount(std::byte* dst, const std::byte* src) {
+  reinterpret_cast<CountSt*>(dst)->count += reinterpret_cast<const CountSt*>(src)->count;
+}
+template <class A>
+void CombSum(std::byte* dst, const std::byte* src) {
+  auto* d = reinterpret_cast<SumSt<A>*>(dst);
+  const auto* s = reinterpret_cast<const SumSt<A>*>(src);
+  d->sum = simd::scalar::AddOp<A>(d->sum, s->sum);
+  d->has = d->has || s->has;
+}
+template <class T, bool IsMax>
+void CombMinMax(std::byte* dst, const std::byte* src) {
+  auto* d = reinterpret_cast<MinMaxSt<T>*>(dst);
+  const auto* s = reinterpret_cast<const MinMaxSt<T>*>(src);
+  if (s->has && (!d->has || (IsMax ? (s->value > d->value) : (s->value < d->value)))) {
+    d->value = s->value;
+  }
+  d->has = d->has || s->has;
+}
+template <class A>
+void CombAvg(std::byte* dst, const std::byte* src) {
+  auto* d = reinterpret_cast<AvgSt<A>*>(dst);
+  const auto* s = reinterpret_cast<const AvgSt<A>*>(src);
+  d->sum = simd::scalar::AddOp<A>(d->sum, s->sum);
+  d->count += s->count;
+}
+
 }  // namespace
 
 ResolvedAggregate ResolveAggregate(AggFunc func, TypeId t) {
   using R = ResolvedAggregate;
   switch (func) {
     case AggFunc::kCountStar:
-      return R{sizeof(CountSt), TypeId::kInt64, false, &UpdCountStar, &FinCount};
+      return R{sizeof(CountSt), TypeId::kInt64, false, &UpdCountStar, &FinCount, &CombCount};
     case AggFunc::kCount:
-      return R{sizeof(CountSt), TypeId::kInt64, true, &UpdCount, &FinCount};
+      return R{sizeof(CountSt), TypeId::kInt64, true, &UpdCount, &FinCount, &CombCount};
     case AggFunc::kSum:
       switch (t) {
         case TypeId::kInt32:
-          return R{sizeof(SumSt<std::int64_t>), TypeId::kInt64, true, &UpdSum<std::int64_t, std::int32_t>, &FinSum<std::int64_t, std::int64_t>};
+          return R{sizeof(SumSt<std::int64_t>), TypeId::kInt64, true, &UpdSum<std::int64_t, std::int32_t>, &FinSum<std::int64_t, std::int64_t>, &CombSum<std::int64_t>};
         case TypeId::kInt64:
-          return R{sizeof(SumSt<std::int64_t>), TypeId::kInt64, true, &UpdSum<std::int64_t, std::int64_t>, &FinSum<std::int64_t, std::int64_t>};
+          return R{sizeof(SumSt<std::int64_t>), TypeId::kInt64, true, &UpdSum<std::int64_t, std::int64_t>, &FinSum<std::int64_t, std::int64_t>, &CombSum<std::int64_t>};
         case TypeId::kDouble:
-          return R{sizeof(SumSt<double>), TypeId::kDouble, true, &UpdSum<double, double>, &FinSum<double, double>};
+          return R{sizeof(SumSt<double>), TypeId::kDouble, true, &UpdSum<double, double>, &FinSum<double, double>, &CombSum<double>};
         default:
           return R{};  // unsupported -> null fns (asserted at setup)
       }
@@ -130,11 +159,11 @@ ResolvedAggregate ResolveAggregate(AggFunc func, TypeId t) {
       switch (t) {
         case TypeId::kInt32:
         case TypeId::kDate:
-          return R{sizeof(MinMaxSt<std::int32_t>), t, true, &UpdMinMax<std::int32_t, false>, &FinMinMax<std::int32_t>};
+          return R{sizeof(MinMaxSt<std::int32_t>), t, true, &UpdMinMax<std::int32_t, false>, &FinMinMax<std::int32_t>, &CombMinMax<std::int32_t, false>};
         case TypeId::kInt64:
-          return R{sizeof(MinMaxSt<std::int64_t>), t, true, &UpdMinMax<std::int64_t, false>, &FinMinMax<std::int64_t>};
+          return R{sizeof(MinMaxSt<std::int64_t>), t, true, &UpdMinMax<std::int64_t, false>, &FinMinMax<std::int64_t>, &CombMinMax<std::int64_t, false>};
         case TypeId::kDouble:
-          return R{sizeof(MinMaxSt<double>), t, true, &UpdMinMax<double, false>, &FinMinMax<double>};
+          return R{sizeof(MinMaxSt<double>), t, true, &UpdMinMax<double, false>, &FinMinMax<double>, &CombMinMax<double, false>};
         default:
           return R{};
       }
@@ -142,22 +171,22 @@ ResolvedAggregate ResolveAggregate(AggFunc func, TypeId t) {
       switch (t) {
         case TypeId::kInt32:
         case TypeId::kDate:
-          return R{sizeof(MinMaxSt<std::int32_t>), t, true, &UpdMinMax<std::int32_t, true>, &FinMinMax<std::int32_t>};
+          return R{sizeof(MinMaxSt<std::int32_t>), t, true, &UpdMinMax<std::int32_t, true>, &FinMinMax<std::int32_t>, &CombMinMax<std::int32_t, true>};
         case TypeId::kInt64:
-          return R{sizeof(MinMaxSt<std::int64_t>), t, true, &UpdMinMax<std::int64_t, true>, &FinMinMax<std::int64_t>};
+          return R{sizeof(MinMaxSt<std::int64_t>), t, true, &UpdMinMax<std::int64_t, true>, &FinMinMax<std::int64_t>, &CombMinMax<std::int64_t, true>};
         case TypeId::kDouble:
-          return R{sizeof(MinMaxSt<double>), t, true, &UpdMinMax<double, true>, &FinMinMax<double>};
+          return R{sizeof(MinMaxSt<double>), t, true, &UpdMinMax<double, true>, &FinMinMax<double>, &CombMinMax<double, true>};
         default:
           return R{};
       }
     case AggFunc::kAvg:
       switch (t) {
         case TypeId::kInt32:
-          return R{sizeof(AvgSt<std::int64_t>), TypeId::kDouble, true, &UpdAvg<std::int64_t, std::int32_t>, &FinAvg<std::int64_t>};
+          return R{sizeof(AvgSt<std::int64_t>), TypeId::kDouble, true, &UpdAvg<std::int64_t, std::int32_t>, &FinAvg<std::int64_t>, &CombAvg<std::int64_t>};
         case TypeId::kInt64:
-          return R{sizeof(AvgSt<std::int64_t>), TypeId::kDouble, true, &UpdAvg<std::int64_t, std::int64_t>, &FinAvg<std::int64_t>};
+          return R{sizeof(AvgSt<std::int64_t>), TypeId::kDouble, true, &UpdAvg<std::int64_t, std::int64_t>, &FinAvg<std::int64_t>, &CombAvg<std::int64_t>};
         case TypeId::kDouble:
-          return R{sizeof(AvgSt<double>), TypeId::kDouble, true, &UpdAvg<double, double>, &FinAvg<double>};
+          return R{sizeof(AvgSt<double>), TypeId::kDouble, true, &UpdAvg<double, double>, &FinAvg<double>, &CombAvg<double>};
         default:
           return R{};
       }

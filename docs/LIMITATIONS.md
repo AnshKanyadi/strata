@@ -62,12 +62,29 @@ AVX2/AVX-512 figures in the literature. Highway compiles the *same* kernel
 sources to AVX2 on the x86_64 CI runner, so [`BENCHMARKS.md`](BENCHMARKS.md)
 reports **both** NEON (macOS) and AVX2 (Linux) numbers rather than extrapolating.
 
-## 5. Parallel scaling is sub-linear on heterogeneous cores *(measured from P8)*
+## 5. Parallelism: scope and honest scaling *(P8)*
 
-The M3 Pro has 5 performance + 6 efficiency cores. E-cores are slower, so
-morsel-driven scaling will not be perfectly linear; the scaling curve in
-`BENCHMARKS.md` will show and explain this rather than quoting an idealized
-"N×" number.
+The morsel-driven parallel layer (work-stealing thread pool + thread-local
+aggregation + merge, ADR 0015) is **built, TSan-clean, and bit-identical to
+serial** for integer aggregates. Honest boundaries:
+
+- **Sub-linear on the M3's asymmetric cores.** 5 performance + 6 efficiency cores;
+  E-cores are slower and aggregation is memory-bound, so measured scaling is
+  ~3.7× at 4 threads, 5.4× at 6, **8.1× at 11** — not ~11× ([`BENCHMARKS.md`](BENCHMARKS.md#parallel-aggregation-scaling--neon-p8)).
+- **Not yet wired into the SQL executor.** `query()` still aggregates serially;
+  `ParallelAggregate` is validated as a standalone operator. Routing the planner
+  through it is the next step.
+- **Mutex-guarded work-stealing deques**, not a lock-free Chase-Lev deque
+  (correctness/TSan-cleanliness over the last bit of throughput) — deferred.
+- **Floating-point SUM/AVG are not bit-identical across thread counts**: parallel
+  summation order differs and IEEE addition is non-associative, so results may
+  differ in the last ULP. Integer aggregates *are* bit-identical. No Kahan/
+  compensated summation.
+- **Parallel filter/project/join** are not wired (filter/project are
+  embarrassingly parallel via the same `ParallelFor`; parallel join build lands
+  with join execution in P9).
+- **No NUMA awareness**: the M3 is a single unified-memory domain, so Leis's
+  NUMA-local queue placement is moot on-device and not validated anywhere.
 
 ## 6. Scope of SQL support *(P7)*
 

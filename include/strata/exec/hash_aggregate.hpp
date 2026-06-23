@@ -28,6 +28,11 @@ class HashAggregate final : public Sink {
   void Consume(const DataChunk& chunk) override;
   void Finalize() override;
 
+  // Merge another table's groups into this one (state-level combine). Both tables
+  // must have the same keys and aggregates. Used by parallel aggregation to fold
+  // per-worker thread-local tables together before Finalize (ADR 0015).
+  void MergeFrom(const HashAggregate& other);
+
   // Result schema: the group-key columns, then one column per aggregate.
   std::span<const TypeId> output_types() const noexcept { return output_types_; }
   std::size_t group_count() const noexcept { return num_groups_; }
@@ -40,6 +45,11 @@ class HashAggregate final : public Sink {
   static constexpr std::uint32_t kEmpty = 0xFFFFFFFFu;
 
   std::uint32_t FindOrCreateGroup(const DataChunk& chunk, std::size_t row, std::uint64_t hash);
+  // Find-or-create the group whose key lives in another table's row `src` (same
+  // layout). Used by MergeFrom; copies the key from `src` on insert.
+  std::uint32_t FindOrCreateGroupFromRow(const std::byte* src, std::uint64_t hash);
+  bool KeysEqualRows(const std::byte* a, const std::byte* b) const;
+  void CopyKeyFromRow(std::byte* dst, const std::byte* src);
   std::uint32_t AppendGroup(std::uint64_t hash);
   void Grow();
   std::uint64_t HashRow(const DataChunk& chunk, std::size_t row) const;

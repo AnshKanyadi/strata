@@ -9,3 +9,7 @@ target_link_libraries(strata_bench
 add_executable(strata_bench_kernels bench_kernels.cpp)
 target_link_libraries(strata_bench_kernels
   PRIVATE strata_core strata_warnings benchmark::benchmark_main)
+
+# Parallel-aggregation scaling benchmark (P8). Plain main (own thread counts).
+add_executable(strata_bench_parallel bench_parallel.cpp)
+target_link_libraries(strata_bench_parallel PRIVATE strata_core strata_warnings)
