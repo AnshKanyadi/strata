@@ -22,7 +22,12 @@ add_library(strata_core STATIC
   exec/sort.cpp
   exec/top_n.cpp
   exec/limit.cpp
-  exec/result_collector.cpp)
+  exec/result_collector.cpp
+  plan/parser.cpp
+  plan/binder.cpp
+  plan/optimizer.cpp
+  plan/executor.cpp
+  plan/query.cpp)
 
 target_include_directories(strata_core PUBLIC
   "${CMAKE_SOURCE_DIR}/include"

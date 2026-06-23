@@ -159,6 +159,30 @@ genuinely usable (a safe checkpoint).
 - **Deferred**: normalized/binary sort keys (one `memcmp` over an order-preserving
   encoded key) — the known next optimization, documented in ADR 0013.
 
+## SQL front-end & optimizer (P7)
+
+The end-to-end `query(sql, catalog) → result` path ([ADR 0014](adr/0014-sql-frontend-and-optimizer.md)):
+
+- **Parser** (`plan/parser`) — a hand-written tokenizer + recursive-descent parser
+  over Strata's executable SQL subset (the sanctioned fallback over a library — see
+  the ADR for the rationale). Produces an *unbound* `LogicalNode` tree. `BETWEEN`
+  desugars to `>= AND <=`.
+- **`LogicalPlan` IR + binder + catalog** — relational-algebra nodes (Get, Filter,
+  Project, Aggregate, Join, Order, Limit) decoupled from physical operators. The
+  binder resolves column names against a `Catalog` of registered tables, computes
+  each node's output schema, and coerces literal constants to the operand type.
+- **Optimizer** (`plan/optimizer`) — rule-based: **constant folding**, **predicate
+  pushdown** (split conjuncts; push below joins to the referenced side — the
+  "filter below the join" rewrite), and **projection pushdown** (prune a Get to
+  the columns actually referenced — the columnar win). No cost-based join
+  reordering (deferred).
+- **Executor** (`plan/executor`) — lowers the optimized plan to the physical
+  operators (Scan/Filter/Project/HashAggregate/Sort/TopN/Limit), driving the scan
+  through Filter + a projection into a chain of sinks (`ORDER BY … LIMIT` fuses to
+  `TopN`). Single-table queries run end-to-end and are cross-checked against
+  DuckDB; **JOIN execution is deferred to P9** (the Join node + the inner-join
+  pushdown rule exist and are tested at the IR level).
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -171,6 +195,6 @@ genuinely usable (a safe checkpoint).
 | `exec/aggregate` + `exec/hash_aggregate` (open-addressing GROUP BY) | P4 | done |
 | `exec/hash_join` (chained build/probe equi-join) | P5 | done |
 | `exec/sort` + `exec/top_n` + `exec/limit` | P6 | done |
-| `LogicalPlan / Optimizer / Parser` | P7 | — |
+| `plan/` — parser, `LogicalPlan` IR, binder + catalog, optimizer, executor, `query()` | P7 | done |
 | Morsel scheduler (work-stealing) | P8 | — |
 | TPC-H harness | P9 | — |

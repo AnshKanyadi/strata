@@ -51,13 +51,17 @@ class Expression {
   ExprKind kind;
   TypeId type;  // result type (computed by the factory)
 
-  std::size_t column_index = 0;                  // kColumnRef
+  std::size_t column_index = 0;                  // kColumnRef (after binding)
+  std::string column_name;                       // kColumnRef (before binding; set by the parser)
+  std::string table_qualifier;                   // kColumnRef (optional "t" in t.col)
   Value constant{};                              // kConstant
   simd::CmpOp cmp = simd::CmpOp::kEq;             // kComparison
   simd::ArithOp arith = simd::ArithOp::kAdd;      // kArithmetic
   std::vector<ExprPtr> children;                 // operands
 
   static ExprPtr ColumnRef(std::size_t index, TypeId type);
+  // Unbound column reference (name only); the binder fills column_index + type.
+  static ExprPtr ColumnRefByName(std::string name, std::string qualifier = {});
   static ExprPtr Constant(Value v);
   static ExprPtr Comparison(simd::CmpOp op, ExprPtr left, ExprPtr right);   // -> kBool
   static ExprPtr Arithmetic(simd::ArithOp op, ExprPtr left, ExprPtr right); // -> operand type

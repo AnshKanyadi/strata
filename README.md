@@ -31,19 +31,20 @@ DuckDB plays three roles in this project at once:
 
 ## Status
 
-Early. Built in gated phases (P0–P9); see the roadmap below. **P0–P4 are
+Early. Built in gated phases (P0–P9); see the roadmap below. **P0–P7 are
 complete**: the toolchain/CI skeleton (P0), the columnar data plane (P1),
-storage + scan + the push-based pipeline (P2), the vectorized expression
-engine with NULL-aware Filter/Project and Highway SIMD kernels (P3), hash
-aggregation — GROUP BY + global COUNT/SUM/MIN/MAX/AVG (P4), the hash join
-(P5), and Sort / Limit / Top-N (P6). 116 tests green under ASan/UBSan and TSan;
-aggregates, joins, and sort order cross-checked against DuckDB. The **first
-measured numbers** — scalar vs.
-SIMD on NEON, ~3.7× on int32 and ~1.7× on doubles — are in
-[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (honestly: lane-count bounded, with
-the auto-vectorization caveat stated). DuckDB TPC-H comparisons come in P9 — they arrive in P3 (kernels) and P9 (TPC-H), measured
-on the harness and recorded with machine specs in
-[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+storage + scan + the push-based pipeline (P2), the vectorized expression engine
+with NULL-aware Filter/Project and Highway SIMD kernels (P3), hash aggregation
+(P4), the hash join (P5), Sort / Limit / Top-N (P6), and the SQL front-end —
+parser, logical plan IR, and a rule-based optimizer with an end-to-end
+`query(sql)` path (P7). **130 tests** green under ASan/UBSan and TSan;
+aggregates, joins, sort order, and full SQL query results cross-checked against
+DuckDB.
+
+The **first measured numbers** — scalar vs. SIMD on NEON, ~3.7× on int32 and
+~1.7× on doubles — are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (honestly:
+lane-count bounded, with the auto-vectorization caveat stated). The full TPC-H
+vs. DuckDB comparison and gap analysis come in P9.
 
 ## Build
 
@@ -93,7 +94,7 @@ SQL ──► Parser ──► Logical plan ──► Optimizer ──► Physic
 | **P4** ✅ | Hash aggregation: open addressing + salt + row layout; COUNT/SUM/MIN/MAX/AVG, NULL + overflow handling |
 | **P5** ✅ | Hash join: chained build table + row layout, vectorized match gather, multi-key, NULL semantics |
 | **P6** ✅ | Sort / Limit / Top-N: stable comparator sort (multi-col, NULL order), bounded-heap Top-N |
-| P7 | Plan IR, rule-based optimizer, SQL front-end |
+| **P7** ✅ | SQL front-end: parser, logical plan IR, rule-based optimizer (predicate + projection pushdown), end-to-end `query()` |
 | P8 | **Morsel-driven parallelism** (work-stealing, TSan-clean) |
 | P9 | **TPC-H correctness + performance vs. DuckDB**, gap analysis |
 

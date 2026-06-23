@@ -22,6 +22,14 @@ ExprPtr Expression::ColumnRef(std::size_t index, TypeId type) {
   e->column_index = index;
   return e;
 }
+ExprPtr Expression::ColumnRefByName(std::string name, std::string qualifier) {
+  auto e = std::make_unique<Expression>();
+  e->kind = ExprKind::kColumnRef;
+  e->type = TypeId::kInt32;  // placeholder; the binder fills the real type + index
+  e->column_name = std::move(name);
+  e->table_qualifier = std::move(qualifier);
+  return e;
+}
 ExprPtr Expression::Constant(Value v) {
   auto e = std::make_unique<Expression>();
   e->kind = ExprKind::kConstant;

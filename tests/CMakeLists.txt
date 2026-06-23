@@ -20,7 +20,9 @@ add_executable(strata_tests
   test_hash_join.cpp
   test_sort.cpp
   test_top_n.cpp
-  test_limit.cpp)
+  test_limit.cpp
+  test_optimizer.cpp
+  test_sql.cpp)
 
 target_link_libraries(strata_tests
   PRIVATE strata_core strata_warnings GTest::gtest_main)

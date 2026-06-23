@@ -69,9 +69,27 @@ morsel-driven scaling will not be perfectly linear; the scaling curve in
 `BENCHMARKS.md` will show and explain this rather than quoting an idealized
 "N×" number.
 
-## 6. Scope of SQL support
+## 6. Scope of SQL support *(P7)*
 
-Strata implements a *subset* of SQL sufficient to run a representative set of
-TPC-H queries. Unsupported features (e.g. correlated subqueries, window
-functions, full DDL/DML) are listed explicitly as they are decided, with the
-queries they exclude. *(enumerated in P7/P9)*
+The parser is hand-written over a deliberate **subset** (ADR 0014; the build
+spec's sanctioned fallback over a parser library, chosen for exact grammar
+control and a clean two-compiler CI). Validated end-to-end against DuckDB.
+
+**Supported:** `SELECT` of column refs / `*` / arithmetic / the five aggregates
+(`COUNT`/`SUM`/`MIN`/`MAX`/`AVG`) with `AS`; `FROM` one table; `WHERE`,
+`GROUP BY`, `ORDER BY` (per-key `ASC`/`DESC`, `NULLS FIRST`/`LAST`), `LIMIT`;
+`AND`/`OR`/`NOT`, comparisons, `+ - *`, `BETWEEN` (desugared); int/double/string/
+`DATE 'YYYY-MM-DD'` literals.
+
+**Not supported (stated plainly, not accidental):**
+- **JOINs do not yet *execute*** — the `Join` logical node and the
+  predicate-pushdown-through-join rule are built and tested at the IR level, but
+  the parser and executor wire up joins in **P9** (for TPC-H Q3).
+- **`ORDER BY` must reference a selected column** (the parser places `ORDER BY`
+  above the projection; ordering by a non-projected column is not supported).
+- No subqueries, `HAVING`, `DISTINCT`, set operations, window functions, `CASE`,
+  `LIKE`, division, or DDL/DML.
+- The optimizer is **rule-based, not cost-based**: no statistics and no join
+  reordering — a bad join order is not corrected (deferred, ADR 0014).
+- The binder does only literal-constant coercion; there are no implicit
+  column-to-column casts.
