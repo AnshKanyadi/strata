@@ -99,9 +99,12 @@ control and a clean two-compiler CI). Validated end-to-end against DuckDB.
 `DATE 'YYYY-MM-DD'` literals.
 
 **Not supported (stated plainly, not accidental):**
-- **JOINs do not yet *execute*** — the `Join` logical node and the
-  predicate-pushdown-through-join rule are built and tested at the IR level, but
-  the parser and executor wire up joins in **P9** (for TPC-H Q3).
+- **JOINs do not yet *execute*** — the hash-join *operator* exists (ADR 0012,
+  tested in isolation) and the `Join` logical node + predicate-pushdown-through-join
+  rule are built/tested at the IR level, but the **parser and executor do not wire
+  joins** end-to-end. This is the single largest remaining gap, and it is why the
+  TPC-H validation (P9) covers only the **single-table** queries Q1 and Q6, not the
+  20 join-requiring queries. Stated plainly, not glossed.
 - **`ORDER BY` must reference a selected column** (the parser places `ORDER BY`
   above the projection; ordering by a non-projected column is not supported).
 - No subqueries, `HAVING`, `DISTINCT`, set operations, window functions, `CASE`,

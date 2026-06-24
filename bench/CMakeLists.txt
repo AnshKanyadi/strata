@@ -13,3 +13,7 @@ target_link_libraries(strata_bench_kernels
 # Parallel-aggregation scaling benchmark (P8). Plain main (own thread counts).
 add_executable(strata_bench_parallel bench_parallel.cpp)
 target_link_libraries(strata_bench_parallel PRIVATE strata_core strata_warnings)
+
+# TPC-H harness (P9): load lineitem CSV, run Q1/Q6, validate vs DuckDB, time.
+add_executable(strata_tpch tpch_runner.cpp)
+target_link_libraries(strata_tpch PRIVATE strata_core strata_warnings)

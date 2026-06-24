@@ -108,11 +108,66 @@ not rounded up to "near-linear to 11×".
 > executor (`query()`) still aggregates serially — routing the planner through the
 > parallel layer is the next step (ADR 0015).
 
-### TPC-H SF1 vs. DuckDB — *(P9)*
-_Pending._
+### TPC-H SF1 vs. DuckDB (P9)
+
+**Setup.** Data: DuckDB v1.5.3 `tpch` extension, `CALL dbgen(sf=1)` →
+`lineitem` = **6,001,215 rows**. Strata loads the **7 projected columns** Q1/Q6
+reference (`l_quantity, l_extendedprice, l_discount, l_tax, l_returnflag,
+l_linestatus, l_shipdate`) from CSV into an in-memory `ColumnarTable` (~1.6 s).
+The runnable TPC-H subset is the **single-table** queries — **Q1** (the canonical
+aggregation/expression query) and **Q6** (scan/filter) — because Strata's executor
+runs single-table plans (join execution is deferred; ADR 0014/0016). Strata has no
+DECIMAL type, so decimals load as **DOUBLE**; the DuckDB oracle is run with the
+same columns **cast to DOUBLE** for an apples-to-apples comparison. Strata timings:
+median of 7, `release` preset, M3 Pro / NEON. Reproduce:
+`./build/release/bench/strata_tpch /tmp/lineitem_sf1.csv`.
+
+**Correctness — validated against DuckDB (ALL PASS).** Q6 = `123141078.22829895`
+(Strata) vs `123141078.2282996` (DuckDB double) — match to ~13 significant
+figures; the low-digit difference is double **summation order**, not error (IEEE
+add is non-associative). DuckDB's *native-decimal* Q6 is `123141078.2283` — the
+honest decimal-vs-double representational delta. Q1's four `(returnflag,linestatus)`
+group rows all match within ~`3e-14` relative.
+
+**Performance — the honest gap.**
+
+| Query | Strata (serial) | DuckDB 1-thread | DuckDB default (11-thread) |
+|-------|----------------:|----------------:|---------------------------:|
+| Q6 | 141 ms | ~21 ms (**6.7×**) | ~7 ms (**~20×**) |
+| Q1 | 658 ms | ~232 ms (**2.8×**) | ~37 ms (**~18×**) |
+
+(× = how much slower Strata is.) Strata is **~3–7× slower than single-threaded
+DuckDB and ~18–20× slower than DuckDB's multi-threaded default** — an honest,
+expected result for a from-scratch engine. **DuckDB runs multi-threaded by
+default; Strata's query path is serial** — that is the single biggest factor.
+
+**The parallel layer on real data.** The P8 morsel layer aggregates real
+`lineitem` (a Q1-shaped `GROUP BY l_returnflag, l_linestatus`, `sum`+`count`)
+**211 ms → 25 ms = 8.45×** at 11 threads. This is the **aggregation phase only**
+(no `WHERE`, no per-morsel expression args), not the full Q1, and it is not yet
+wired into `query()` — but it shows the gap to DuckDB's parallel default is
+substantially parallelism, not algorithm.
 
 ## Gap analysis
 
-_Pending (P9)._ Will explain each delta vs. DuckDB with specific causes
-(adaptive compression, tuned german-string layout, optimized hash tables,
-expression rewriting, years of engineering), per query.
+- **Q6 (filter-heavy) shows the *larger* gap (6.7×).** Q6 is four predicates over
+  6M rows feeding one sum. DuckDB pushes predicates into the scan with min-max /
+  zonemap **skipping** (whole row groups are never touched) and runs a tight SIMD
+  filter; Strata evaluates **every predicate over every row** with no skipping and
+  no scan-level pushdown into storage. The gap here is mostly *work Strata does
+  that DuckDB avoids*.
+- **Q1 (aggregation-heavy) shows the *smaller* gap (2.8×).** Both engines must do
+  the full grouped aggregation; Strata's vectorized hash-aggregate + expression
+  evaluation is relatively competitive on the part that can't be skipped.
+- **Multi-threading dominates the rest.** DuckDB's ~18–20× edge at its default
+  thread count is mostly parallelism: Strata's `query()` is serial, and the
+  standalone parallel layer already shows ~8× on the aggregation. Wiring it (plus
+  per-morsel filter/projection) behind the planner is the documented next step.
+- **What we are *not* claiming:** Strata is not competitive with DuckDB on speed,
+  and it isn't meant to be. The deliverable is **validated correctness + a
+  measured, explained gap**. Remaining DuckDB advantages not isolated here include
+  adaptive/dictionary compression, more tuned hash tables, and expression
+  rewriting — years of focused engineering.
+
+AVX2 numbers from the x86_64 CI runner are pending; all numbers above are
+M3 Pro / NEON.

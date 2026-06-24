@@ -203,6 +203,26 @@ The end-to-end `query(sql, catalog) → result` path ([ADR 0014](adr/0014-sql-fr
 - **Honest boundary**: this is a standalone operator — the SQL executor still
   aggregates serially; routing the planner through it is the next step.
 
+## TPC-H validation against DuckDB (P9)
+
+[ADR 0016](adr/0016-tpch-validation-and-the-gap.md). Strata's executor runs
+single-table plans, so the runnable TPC-H subset is **Q1** (aggregation/expression
+throughput) and **Q6** (scan/filter) — neither needs a join.
+
+- **Harness** (`bench/tpch_runner`): loads the 7 `lineitem` columns Q1/Q6 reference
+  from CSV (decimals → `DOUBLE`; Strata has no `DECIMAL`), runs both via `query()`,
+  validates each against the DuckDB oracle (columns cast to `DOUBLE` for an
+  apples-to-apples comparison), and times them.
+- **Result**: at SF1 (6M rows), Q1/Q6 match DuckDB to ~13 significant figures
+  (low-digit deltas are non-associative double summation order). Strata is
+  **~3–7× slower than single-threaded DuckDB, ~18–20× vs. its multi-threaded
+  default** — measured and explained per query in [BENCHMARKS](BENCHMARKS.md).
+- **Regression test** (`tests/test_tpch`): a 12-row in-code `lineitem` with
+  DuckDB-baked expected values, so CI re-validates Q1/Q6 without needing DuckDB.
+- **Deferred (honest)**: the other 20 queries need join execution (operator exists,
+  ADR 0012), a `DECIMAL` type, and more SQL; the parallel layer isn't wired into
+  `query()`.
+
 ## Module map (fills in by phase)
 
 | Module | Phase | Status |
@@ -217,4 +237,4 @@ The end-to-end `query(sql, catalog) → result` path ([ADR 0014](adr/0014-sql-fr
 | `exec/sort` + `exec/top_n` + `exec/limit` | P6 | done |
 | `plan/` — parser, `LogicalPlan` IR, binder + catalog, optimizer, executor, `query()` | P7 | done |
 | `parallel/` — work-stealing `ThreadPool` + `ParallelAggregate` (morsel-driven) | P8 | built + TSan-clean (executor integration pending) |
-| TPC-H harness | P9 | — |
+| `bench/tpch_runner` + `tests/test_tpch` — TPC-H Q1/Q6 validated vs. DuckDB | P9 | done (single-table subset) |

@@ -105,6 +105,57 @@ TEST(ParallelAggregate, GlobalMatchesSerial) {
   EXPECT_EQ(par.Get<std::int64_t>(0, 1), 30'000);
 }
 
+// VARCHAR group keys exercise the merge's string-copy / string-compare path
+// (CopyKeyFromRow / KeysEqualRows varchar branches) that integer keys don't.
+ColumnarTable MakeVarcharTable(std::size_t n, int num_keys) {
+  Schema s(std::vector<ColumnDef>{{"k", TypeId::kVarchar}, {"v", TypeId::kInt32}});
+  ColumnarTable t(s);
+  std::size_t done = 0;
+  while (done < n) {
+    const std::size_t b = std::min(kVectorSize, n - done);
+    DataChunk c;
+    c.Initialize(s.types(), kVectorSize);
+    for (std::size_t i = 0; i < b; ++i) {
+      const std::int32_t idx = static_cast<std::int32_t>(done + i);
+      const std::string key = "k" + std::to_string(idx % num_keys);
+      c.column(0).Set<StringRef>(i, c.column(0).AddString(key));
+      c.column(1).Set<std::int32_t>(i, idx);
+    }
+    c.SetSize(b);
+    t.AppendChunk(std::move(c));
+    done += b;
+  }
+  return t;
+}
+
+TEST(ParallelAggregate, VarcharGroupKeysMatchSerial) {
+  const ColumnarTable t = MakeVarcharTable(40'000, 50);
+  const std::vector<GroupKey> keys{{0, TypeId::kVarchar}};
+  const std::vector<AggregateSpec> specs{{AggFunc::kSum, 1, TypeId::kInt32}, {AggFunc::kCountStar}};
+  const Schema rs(std::vector<ColumnDef>{
+      {"k", TypeId::kVarchar}, {"s", TypeId::kInt64}, {"c", TypeId::kInt64}});
+
+  auto to_map = [](const ResultCollector& c) {
+    std::map<std::string, std::pair<std::int64_t, std::int64_t>> m;
+    for (std::size_t r = 0; r < c.row_count(); ++r) {
+      m[c.GetString(r, 0)] = {c.Get<std::int64_t>(r, 1), c.Get<std::int64_t>(r, 2)};
+    }
+    return m;
+  };
+
+  ResultCollector serial(rs);
+  HashAggregate sa(keys, specs, serial);
+  for (std::size_t i = 0; i < t.chunk_count(); ++i) sa.Consume(t.chunk(i));
+  sa.Finalize();
+
+  ThreadPool pool(8);
+  ResultCollector par(rs);
+  ParallelAggregate(pool, t, keys, specs, par);
+
+  EXPECT_EQ(par.row_count(), 50u);
+  EXPECT_EQ(to_map(par), to_map(serial));
+}
+
 TEST(ParallelAggregate, StressManyThreadsManyRows) {
   // Large table + 8 threads, run a few times — exercises stealing/merge under TSan.
   const ColumnarTable t = MakeTable(200'000, 500);
