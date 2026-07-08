@@ -13,3 +13,7 @@ compile_commands.json
 /tpch_sf*/
 *.tbl
 *.parquet
+
+# Local scratch / session logs
+/amazingclaudecodesession.txt
+*.log

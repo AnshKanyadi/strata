@@ -1,116 +1,143 @@
 # Strata
 
-**A mini-DuckDB: a vectorized, columnar, push-based analytical query engine in C++23 — validated against DuckDB itself for both correctness and performance.**
+Strata is an analytical SQL engine I wrote from scratch in C++23 to really understand how a modern column store like DuckDB works on the inside. It runs queries over in-memory columnar data using vectorized execution, so data moves through the operators in batches of 2048 values at a time instead of one row at a time. That batching is the whole point. It keeps the inner loops tight, gives the compiler and the CPU room to do actual SIMD work, and gets rid of the per-row interpreter overhead that makes a naive engine slow.
 
-Strata executes analytical SQL over in-memory columnar data using *vectorized
-execution*: data flows through operators in cache-resident batches ("vectors")
-of `VECTOR_SIZE = 2048` values rather than one tuple at a time, amortizing
-interpretation overhead and exposing data-level parallelism to the CPU. This is
-the architecture pioneered by MonetDB/X100 and used today by DuckDB and
-Databricks Photon.
+I built and checked the whole thing against DuckDB. Every query Strata can run is diffed against DuckDB's answer, and every performance number in this repo comes from a real run on my machine, not a guess. Strata is slower than DuckDB, and I say by how much and why. Beating it was never the goal. The goal was a correct, sanitizer-clean engine built up one piece at a time, with the gaps measured instead of hidden.
 
-DuckDB plays three roles in this project at once:
-- **Data generator** — TPC-H data via its `tpch` extension (`CALL dbgen(...)`).
-- **Correctness oracle** — every supported query is diffed against DuckDB's result.
-- **Performance target** — we benchmark against it and explain every gap honestly.
+## How a query flows through it
 
-> Strata is a learning-grade reimplementation of the core ideas behind DuckDB.
-> It is **slower than DuckDB** on most queries — that is expected. The goal is a
-> correct, sanitizer-clean engine whose performance gaps are *measured and
-> explained*, not hidden. See [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md).
+Strata takes a SQL string to a result the way a real database does, one stage at a time:
 
-## The three things this project is really about
+```
+SQL text
+  -> tokenizer + recursive descent parser
+  -> logical plan (relational algebra IR)
+  -> binder (resolve names against the catalog, assign types)
+  -> optimizer (constant folding, predicate pushdown, projection pushdown)
+  -> physical operators
+  -> push-based pipeline into a sink
+  -> materialized result
+```
 
-1. **Portable SIMD with honestly measured deltas** — real kernels behind a
-   runtime-dispatch abstraction (Google Highway), with benchmarks that show
-   where SIMD wins big (selective filters, numeric arithmetic) *and* where it
-   barely helps (strings, hash probes, branchy code).
-2. **Morsel-driven parallelism** (Leis et al., SIGMOD 2014) — a work-stealing
-   scheduler that scales across physical cores, TSan-clean.
-3. **TPC-H benchmarked against DuckDB**, with a written gap analysis.
+The physical layer is push-based. A scan pushes chunks of at most 2048 rows into a filter, the filter into a projection, and so on, until the data lands in a sink that breaks the pipeline: a hash aggregate, a hash join, a sort, or a collector. Sinks are where the work accumulates and where a pipeline stops. I went with push instead of pull partly because it composes cleanly with parallelism later on, and that turned out to be the right call when I got to the morsel scheduler.
 
-## Status
+## The pieces
 
-**All gated phases P0–P9 are complete.** The columnar data plane (P1), storage +
-scan + the push-based pipeline (P2), the vectorized expression engine with
-NULL-aware Filter/Project and Highway SIMD kernels (P3), hash aggregation (P4),
-the hash join (P5), Sort / Limit / Top-N (P6), the SQL front-end with an
-end-to-end `query(sql)` path (P7), **morsel-driven parallelism** — a TSan-clean
-work-stealing pool with thread-local aggregation + merge (P8), and **TPC-H
-validation against DuckDB** (P9). **141 tests** green under ASan/UBSan, release,
-and **TSan**.
+**Data plane.** Columns are stored as typed `Vector`s backed by 64-byte-aligned buffers. NULLs live in a separate validity bitmask so the common all-valid case costs nothing. Strings use an inline layout in the spirit of the Umbra and DuckDB "german strings": up to 12 bytes sit right inside a 16-byte reference, and longer strings keep a 4-byte prefix plus a pointer into an arena, so a lot of comparisons never touch the heap. A `SelectionVector` lets a filter narrow a chunk without copying the underlying columns.
 
-Measured numbers in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), every figure from
-an actual run:
-- **SIMD** (NEON): ~3.7× on int32, ~1.7× on doubles — honestly lane-count bounded.
-- **Parallel aggregation**: ~8× at 11 threads — sub-linear, attributed to the M3's
-  efficiency cores + memory-bound aggregation.
-- **TPC-H SF1 (6M-row `lineitem`)**: Q1 and Q6 **validated against DuckDB** (match
-  to ~13 significant figures). Strata is **~3–7× slower than single-threaded
-  DuckDB, ~18–20× vs. its multi-threaded default** — an honest gap, explained per
-  query (DuckDB's scan-level skipping + default multi-threading). Strata runs the
-  **single-table** subset; join-query execution is the documented remaining gap
-  (the hash-join *operator* exists from P5).
+**Expressions.** A vectorized evaluator handles arithmetic, comparisons, and boolean logic over whole chunks. NULL handling follows real three-valued logic all the way through, which is one of those things that looks simple and absolutely is not once `AND`, `OR`, and `NOT` start interacting with unknowns.
 
-## Build
+**SIMD.** The comparison and arithmetic kernels use Google Highway so the same source compiles to NEON on my Mac and to AVX2 (or wider) on x86, with the target chosen at runtime. I benchmarked scalar against SIMD on identical inputs and wrote down where it helps and where it does not.
 
-Requires a C++23 toolchain. On macOS use **Homebrew LLVM** (Apple clang lags on
-C++23 library features — see [ADR 0002](docs/adr/0002-cxx23-homebrew-llvm-toolchain.md)).
+**Aggregation.** GROUP BY runs through an open-addressing hash table with a salt byte per slot and a row-oriented payload layout, so a probe usually rejects a non-match after one byte and one cache line. It supports COUNT, SUM, MIN, MAX, and AVG with correct NULL semantics and a defined integer overflow policy.
+
+**Join.** Inner equi-join with a chained build side and a vectorized probe that gathers matches in bulk. Multi-key and NULL semantics match SQL.
+
+**Sort, Top-N, Limit.** A stable comparator sort over multiple keys with configurable NULL ordering, plus a bounded max-heap for Top-N that never materializes more than it needs.
+
+**Parallelism.** A work-stealing thread pool with per-worker deques drives morsel-driven aggregation. Each worker folds its slice of the table into its own thread-local hash table with no shared mutable state, and a single merge step combines the partial tables at the end. It is clean under ThreadSanitizer.
+
+## Why DuckDB is all over this repo
+
+DuckDB does three jobs here at once:
+
+- It generates the data. TPC-H comes straight from its `tpch` extension.
+- It is the correctness oracle. If Strata and DuckDB disagree on a result, Strata is wrong.
+- It is the performance target. I measure against it and explain the difference.
+
+## The numbers
+
+Everything below is from an actual run on an Apple M3 Pro (5 performance cores, 6 efficiency cores, ARM NEON), Homebrew LLVM clang, release build. Full detail, machine specs, and reproduction steps are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+
+**SIMD kernels (NEON, scalar vs vectorized).** Around 3.7x on int32 arithmetic and comparisons, around 1.7x on doubles. The 32-bit-vs-64-bit split is not an accident: a 128-bit NEON register holds four int32 but only two doubles, so you get about half the lane parallelism and about half the speedup. I state the honest caveat too, which is that the scalar baseline has autovectorization turned off, so these ratios are an upper bound on the win over what the compiler would give you for free.
+
+**Parallel aggregation.** A GROUP BY over 4 million rows scales from about 76 million rows per second on one thread to about 610 on eleven, roughly 8x. It is sub-linear, and I do not pretend otherwise: the efficiency cores are slower than the performance cores, and aggregation is memory bound, so the curve flattens well before eleven. On real TPC-H `lineitem` (6 million rows), a Q1-shaped grouped aggregation goes from 211 ms to 25 ms across eleven threads.
+
+**TPC-H at scale factor 1 (6,001,215-row `lineitem`), validated against DuckDB.** Strata's executor runs single-table plans, so the queries it can run end to end are Q1 (the classic aggregation and expression query) and Q6 (the scan-and-filter query). Both match DuckDB to about thirteen significant figures. The remaining difference is floating point summation order, not an error, since IEEE addition is not associative and the two engines add the products in different orders.
+
+| Query | Strata (serial) | DuckDB, 1 thread | DuckDB, default (11 threads) |
+|-------|----------------:|-----------------:|-----------------------------:|
+| Q6    | 141 ms          | ~21 ms (6.7x)    | ~7 ms (~20x)                 |
+| Q1    | 658 ms          | ~232 ms (2.8x)   | ~37 ms (~18x)                |
+
+So Strata is roughly 3x to 7x slower than single-threaded DuckDB and 18x to 20x slower than DuckDB running on all cores. The gap on Q6 is bigger because it is filter-heavy: DuckDB skips whole row groups with min/max metadata and pushes predicates into the scan, while Strata evaluates every predicate over all six million rows. Q1 is closer because both engines have to do the full grouped aggregation. The rest of the gap is mostly that DuckDB runs multi-threaded by default and Strata's query path is still serial. My parallel layer already does about 8x on the aggregation on its own, it just is not wired behind the planner yet.
+
+## How I built it
+
+I built Strata in ten stages and treated each one as a gate: it does not move on until it compiles with zero warnings under `-Werror`, all tests pass, and the whole thing is clean under AddressSanitizer, UndefinedBehaviorSanitizer, and (once threads showed up) ThreadSanitizer. That discipline paid off more than once. ASan caught a dangling `string_view` in the sort comparator that I would never have found by reading the code, and TSan gave me real confidence that the work-stealing pool was actually race-free rather than just lucky.
+
+For every non-obvious decision I wrote a short Architecture Decision Record explaining the choice, the alternatives, and the tradeoff. There are sixteen of them in [`docs/adr/`](docs/adr/), and they double as my own notes on why things are the way they are.
+
+| Stage | What landed |
+|-------|-------------|
+| 0 | Toolchain, build system, CI for mac arm64 and ubuntu x86_64, the `Result` type, SIMD preflight |
+| 1 | Columnar core: vectors, validity masks, data chunks, selection vectors, string heap |
+| 2 | Storage, scan, and the push-based pipeline (`SELECT * FROM t` end to end) |
+| 3 | Expression engine, Filter and Project, Highway SIMD kernels with measured deltas |
+| 4 | Hash aggregation with open addressing, salt bytes, and a row layout |
+| 5 | Hash join: chained build table, vectorized probe, multi-key, NULL semantics |
+| 6 | Sort, Limit, and Top-N |
+| 7 | SQL front end: parser, logical plan, rule-based optimizer, end-to-end `query()` |
+| 8 | Morsel-driven parallelism: work-stealing pool, thread-local aggregation, merge |
+| 9 | TPC-H Q1 and Q6 validated against DuckDB, with a written gap analysis |
+
+## Building it
+
+You need a C++23 toolchain. On macOS use Homebrew LLVM, since Apple's clang lags on the C++23 library features Strata leans on (`std::expected` in particular). The reasoning is in [ADR 0002](docs/adr/0002-cxx23-homebrew-llvm-toolchain.md).
 
 ```bash
 brew install llvm cmake ninja highway googletest google-benchmark duckdb
 
-# Debug build with ASan + UBSan, then run the tests:
+# debug build with ASan and UBSan, then the tests
 cmake --preset asan-ubsan
 cmake --build --preset asan-ubsan
 ctest --preset asan-ubsan
 
-# Optimized build, then the SIMD preflight:
+# optimized build, then the SIMD preflight
 cmake --preset release
 cmake --build --preset release
 ./build/release/src/strata --version
 ```
 
-Presets: `release`, `asan-ubsan`, `tsan` (macOS, Homebrew LLVM); `linux-release`,
-`linux-asan-ubsan`, `linux-tsan` (Linux CI, compiler via `CC`/`CXX`).
+There are presets for `release`, `asan-ubsan`, and `tsan` on macOS, and `linux-release`, `linux-asan-ubsan`, and `linux-tsan` for CI. All 141 tests pass under the debug, release, and TSan builds.
 
-## Architecture (target)
+To run the TPC-H harness, generate the data with DuckDB and point the runner at it:
+
+```bash
+duckdb -c "INSTALL tpch; LOAD tpch; CALL dbgen(sf=1);
+  COPY (SELECT l_quantity, l_extendedprice, l_discount, l_tax,
+               l_returnflag, l_linestatus, l_shipdate FROM lineitem)
+  TO '/tmp/lineitem_sf1.csv' (HEADER false);"
+./build/release/bench/strata_tpch /tmp/lineitem_sf1.csv
+```
+
+## Layout
 
 ```
-SQL ──► Parser ──► Logical plan ──► Optimizer ──► Physical plan ──► Pipelines
-                                   (pushdown,                          │
-                                    const-fold)                        ▼
-                         Scan ─► Filter ─► Project ─► [Sink: HashAggregate /
-                         (push DataChunks of 2048 values)   HashJoin / Sort / Collect]
+include/strata/    public headers, grouped by layer (data, simd, exec, plan, parallel)
+src/               implementations + the strata CLI
+tests/             GoogleTest suites, one per component
+bench/             Google Benchmark microbenchmarks + the TPC-H and parallel harnesses
+docs/adr/          16 architecture decision records
+docs/              DESIGN, BENCHMARKS, LIMITATIONS
 ```
 
-- **Type system:** `INT32, INT64, DOUBLE, BOOL, VARCHAR, DATE` (+ `DECIMAL` if a target query needs it).
-- **Vector:** `{type, data, validity bitmask, optional selection vector}`.
-- **DataChunk:** equal-length set of Vectors (≤ 2048) — the unit between operators.
-- **Execution:** push-based pipelines into sinks (see [ADR 0001](docs/adr/0001-push-based-execution.md)).
+## What is not done yet
 
-## Roadmap (one gated phase at a time)
+I would rather be clear about the edges than let you find them by surprise. The full list is in [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md), but the big ones:
 
-| Phase | Content |
-|-------|---------|
-| **P0** ✅ | Toolchain, skeleton, CI (mac arm64 + ubuntu x86_64), `Result` type, SIMD preflight |
-| **P1** ✅ | Columnar core: vectors, validity, DataChunk, selection vectors, string heap |
-| **P2** ✅ | Storage + scan + push-based pipeline scaffolding (`SELECT * FROM t` end-to-end) |
-| **P3** ✅ | Expression engine, Filter/Project, **Highway SIMD kernels + measured scalar-vs-SIMD deltas** |
-| **P4** ✅ | Hash aggregation: open addressing + salt + row layout; COUNT/SUM/MIN/MAX/AVG, NULL + overflow handling |
-| **P5** ✅ | Hash join: chained build table + row layout, vectorized match gather, multi-key, NULL semantics |
-| **P6** ✅ | Sort / Limit / Top-N: stable comparator sort (multi-col, NULL order), bounded-heap Top-N |
-| **P7** ✅ | SQL front-end: parser, logical plan IR, rule-based optimizer (predicate + projection pushdown), end-to-end `query()` |
-| **P8** ✅ | **Morsel-driven parallelism**: work-stealing pool + thread-local aggregation + merge, TSan-clean, ~8× at 11 threads (executor integration pending) |
-| **P9** ✅ | **TPC-H Q1/Q6 validated vs. DuckDB** (single-table subset), honest measured gap + per-query gap analysis |
+- The parser and executor do not wire up joins yet. The hash-join operator itself is built and tested in isolation, but SQL that joins two tables does not run end to end. That is why the TPC-H work covers the two single-table queries and not the twenty that need a join.
+- The parallel layer is validated on its own but is not plugged into the SQL query path, so `query()` still aggregates on one thread.
+- There is no DECIMAL type, so money columns load as doubles. The TPC-H validation compares double against double for that reason.
+- SQL coverage is a deliberate subset: no subqueries, no HAVING, no window functions, no LIKE.
 
-## Documentation
+## Reading the design notes
 
-- [`docs/adr/`](docs/adr/) — Architecture Decision Records (the design rationale / study notes).
-- [`docs/DESIGN.md`](docs/DESIGN.md) — end-to-end architecture.
-- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — numbers, machine specs, reproduction, gap analysis.
-- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — honest boundaries (vectorization vs compilation, the SIMD ceiling, columnar-is-for-OLAP, Apple Silicon NEON reality).
+- [`docs/DESIGN.md`](docs/DESIGN.md) walks the architecture end to end.
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) has the numbers, the machine, how to reproduce them, and the gap analysis.
+- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) is the honest boundaries: vectorization versus compilation, the SIMD ceiling, why columnar is an OLAP choice, and the Apple Silicon core-asymmetry reality.
+- [`docs/adr/`](docs/adr/) is the decision-by-decision rationale.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE).
