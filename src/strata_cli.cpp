@@ -1,9 +1,15 @@
 // Strata command-line entry point. For P0 the only job is a preflight that
-// prints the build identity and — importantly — the SIMD instruction set
-// Highway will dispatch to, plus VECTOR_SIZE. Every benchmark we publish later
-// must be reproducible against this output, so it doubles as provenance.
+// prints the build identity and, importantly, the SIMD instruction set Highway
+// will dispatch to, plus VECTOR_SIZE. Every benchmark we publish later must be
+// reproducible against this output, so it doubles as provenance.
+//
+// Output uses <iostream> rather than std::print/std::println: libc++'s <print>
+// carries an OS-availability annotation and is unavailable on the macOS versions
+// the CI runner targets (the same gating that affects std::from_chars). See
+// src/storage/csv_loader.cpp.
 
-#include <print>
+#include <cstddef>
+#include <iostream>
 #include <string_view>
 
 #include "strata/config.hpp"
@@ -15,26 +21,26 @@ namespace {
 void PrintVersion() {
   const strata::simd::SimdInfo simd = strata::simd::DetectSimd();
 
-  std::println("Strata {}", strata::kVersion);
-  std::println("  compiler     : {} {}", strata::kCompilerId, strata::kCompilerVersion);
-  std::println("  build type   : {}", strata::kBuildType);
-  std::println("  sanitizer    : {}", strata::kSanitizer);
-  std::println("  VECTOR_SIZE  : {}", strata::kVectorSize);
-  std::println("  SIMD dispatch: {}", simd.dispatched_target);
+  std::cout << "Strata " << strata::kVersion << '\n'
+            << "  compiler     : " << strata::kCompilerId << ' ' << strata::kCompilerVersion << '\n'
+            << "  build type   : " << strata::kBuildType << '\n'
+            << "  sanitizer    : " << strata::kSanitizer << '\n'
+            << "  VECTOR_SIZE  : " << strata::kVectorSize << '\n'
+            << "  SIMD dispatch: " << simd.dispatched_target << '\n';
 
-  std::print("  SIMD targets : ");
+  std::cout << "  SIMD targets : ";
   for (std::size_t i = 0; i < simd.supported_targets.size(); ++i) {
-    std::print("{}{}", i == 0 ? "" : ", ", simd.supported_targets[i]);
+    std::cout << (i == 0 ? "" : ", ") << simd.supported_targets[i];
   }
-  std::println("");
+  std::cout << '\n';
 }
 
 void PrintHelp() {
-  std::println("Strata — a vectorized columnar query engine (validated against DuckDB)");
-  std::println("usage: strata [--version | --help]");
+  std::cout << "Strata - a vectorized columnar query engine (validated against DuckDB)\n"
+            << "usage: strata [--version | --help]\n";
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char** argv) {
   const std::string_view arg = (argc > 1) ? argv[1] : "--version";

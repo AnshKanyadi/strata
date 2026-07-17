@@ -4,6 +4,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -395,8 +396,11 @@ class Parser {
       Advance();
       if (t.find('.') != std::string::npos || t.find('e') != std::string::npos ||
           t.find('E') != std::string::npos) {
-        double d = 0;
-        std::from_chars(t.data(), t.data() + t.size(), d);
+        // Not std::from_chars: its floating-point overload is marked unavailable
+        // on the macOS the CI runner targets (see csv_loader.cpp). `t` is a
+        // null-terminated std::string and the tokenizer already validated it as
+        // a numeric literal, so strtod parses it fully and portably.
+        const double d = std::strtod(t.c_str(), nullptr);
         return Expression::Constant(Value::Double(d));
       }
       std::int64_t v = 0;
