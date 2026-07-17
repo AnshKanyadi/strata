@@ -35,6 +35,20 @@ FetchContent_Declare(benchmark
 
 FetchContent_MakeAvailable(highway googletest benchmark)
 
-# Normalize: whether highway came from find_package (hwy::hwy) or from source,
-# the rest of the build references hwy::hwy. The source build also defines it,
-# so no aliasing is needed; this comment just records the invariant.
+# Normalize the from-source Highway target. find_package(hwy CONFIG) exports an
+# IMPORTED target hwy::hwy whose include dirs CMake already treats as SYSTEM, so
+# our -Werror never polices Highway's headers on that path. The FetchContent
+# fallback (used on CI when the system package has no usable CMake config)
+# instead defines a bare `hwy` target and consumes its headers as NORMAL
+# includes, which makes our strict warnings (-Wpedantic on __int128, -Wshadow in
+# arm_neon-inl.h) fire *inside* Highway and fail the build. Fix both gaps on the
+# from-source path only: alias hwy -> hwy::hwy, and mark Highway's interface
+# includes SYSTEM so third-party headers are exempt from our warnings-as-errors.
+if(TARGET hwy AND NOT TARGET hwy::hwy)
+  add_library(hwy::hwy ALIAS hwy)
+  get_target_property(_hwy_include_dirs hwy INTERFACE_INCLUDE_DIRECTORIES)
+  if(_hwy_include_dirs)
+    set_target_properties(hwy PROPERTIES
+      INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_hwy_include_dirs}")
+  endif()
+endif()
