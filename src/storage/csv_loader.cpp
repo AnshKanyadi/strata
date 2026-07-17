@@ -1,10 +1,14 @@
 #include "strata/storage/csv_loader.hpp"
 
+#include <cerrno>
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -16,12 +20,33 @@
 namespace strata {
 namespace {
 
-// from_chars over the whole field, rejecting any trailing garbage ("12x" fails).
+// Parse an entire field, rejecting trailing garbage ("12x" fails).
+//
+// Integers go through std::from_chars. Floating point does NOT: libc++'s
+// floating-point std::from_chars carries an OS-availability annotation (it is
+// marked unavailable on the macOS versions the CI runner targets), so using it
+// fails to compile there. We parse doubles via std::strtod on a null-terminated
+// copy instead. Fields are short numeric tokens; we assume the C locale's '.'
+// decimal separator, which holds for our data and is never changed at runtime.
 template <class T>
 bool ParseExact(std::string_view f, T& out) {
-  const char* const end = f.data() + f.size();
-  const auto [ptr, ec] = std::from_chars(f.data(), end, out);
-  return ec == std::errc{} && ptr == end;
+  if constexpr (std::is_floating_point_v<T>) {
+    if (f.empty()) return false;
+    char buf[64];
+    if (f.size() >= sizeof(buf)) return false;  // no realistic numeric token is this long
+    std::memcpy(buf, f.data(), f.size());
+    buf[f.size()] = '\0';
+    char* parse_end = nullptr;
+    errno = 0;
+    const double value = std::strtod(buf, &parse_end);
+    if (parse_end != buf + f.size() || errno == ERANGE) return false;  // partial parse / overflow
+    out = static_cast<T>(value);
+    return true;
+  } else {
+    const char* const end = f.data() + f.size();
+    const auto [ptr, ec] = std::from_chars(f.data(), end, out);
+    return ec == std::errc{} && ptr == end;
+  }
 }
 
 Result<std::int32_t> ParseDate(std::string_view f) {

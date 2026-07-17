@@ -22,14 +22,19 @@ namespace strata::simd::HWY_NAMESPACE {
 namespace hn = hwy::HWY_NAMESPACE;
 
 // One arithmetic op over a flat array: SIMD body + scalar (wrapping) tail. `vop`
-// is hoisted out of the loop, so the inner loop is branch-free.
+// is hoisted out of the loop, so the inner loop is branch-free. Loads/stores are
+// UNALIGNED (LoadU/StoreU): columnar buffers carry no vector-size alignment
+// guarantee (a column may be read from an offset, a caller may pass a plain
+// array), and on x86 AVX2 an aligned Load of a <32-byte-aligned pointer is
+// undefined behaviour that UBSan flags. On already-aligned data LoadU is the
+// same speed on modern CPUs, so this costs nothing on the aligned fast path.
 template <class T, class VecOp>
 void ArithLoop(const T* a, const T* b, T* out, std::size_t n, ArithOp op, VecOp vop) {
   const hn::ScalableTag<T> d;
   const std::size_t N = hn::Lanes(d);
   std::size_t i = 0;
   for (; i + N <= n; i += N) {
-    hn::Store(vop(hn::Load(d, a + i), hn::Load(d, b + i)), d, out + i);
+    hn::StoreU(vop(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
   }
   for (; i < n; ++i) out[i] = scalar::ApplyArith(op, a[i], b[i]);  // remainder
 }
@@ -58,7 +63,7 @@ void CmpLoop(const T* a, const T* b, std::uint8_t* out, std::size_t n, CmpOp op,
   const std::size_t N = hn::Lanes(d);
   std::size_t i = 0;
   for (; i + N <= n; i += N) {
-    const auto m = cmp(hn::Load(d, a + i), hn::Load(d, b + i));
+    const auto m = cmp(hn::LoadU(d, a + i), hn::LoadU(d, b + i));  // unaligned; see ArithLoop
     if constexpr (std::is_integral_v<T>) {
       const hn::Rebind<std::uint8_t, hn::ScalableTag<T>> du8;
       hn::StoreU(hn::DemoteTo(du8, hn::IfThenElseZero(m, hn::Set(d, T{1}))), du8, out + i);
